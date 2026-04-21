@@ -1,0 +1,77 @@
+services:
+  # PostgreSQL Database
+  db:
+    image: postgres:16-alpine
+    container_name: construction_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-construction_db}
+    ports:
+      - "5433:5432"   # Host 5433 -> Container 5432 (local PG ile cakisma onleme)
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - construction_net
+
+  # FastAPI Backend
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: construction_backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-construction_db}
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      ENVIRONMENT: development
+    volumes:
+      - ./backend:/app          # Hot reload icin bind mount
+      - /app/venv               # venv'i mount'tan haric tut
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - construction_net
+
+  # Next.js Frontend
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: dev
+    container_name: construction_frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+      NODE_ENV: development
+      WATCHPACK_POLLING: "true"   # Docker'da file watcher fix
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules         # node_modules'i mount'tan haric tut
+      - /app/.next
+    depends_on:
+      - backend
+    networks:
+      - construction_net
+
+volumes:
+  postgres_data:
+    driver: local
+
+networks:
+  construction_net:
+    driver: bridge

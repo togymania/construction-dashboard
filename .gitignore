@@ -1,0 +1,105 @@
+# ===== OS =====
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+*.swo
+
+# ===== IDE / Editors =====
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+.history/
+*.code-workspace
+
+# ===== Environment & Secrets =====
+.env
+.env.local
+.env.*.local
+.env.development
+.env.production
+!.env.example
+*.pem
+*.key
+*.cert
+secrets/
+
+# ===== Node / Next.js (Frontend) =====
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/build/
+frontend/dist/
+frontend/.turbo/
+frontend/.vercel/
+frontend/coverage/
+frontend/*.tsbuildinfo
+frontend/next-env.d.ts
+frontend/.env*.local
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# ===== Python / FastAPI (Backend) =====
+backend/venv/
+backend/.venv/
+backend/env/
+backend/__pycache__/
+backend/**/__pycache__/
+backend/*.py[cod]
+backend/*$py.class
+backend/*.so
+backend/.Python
+backend/.pytest_cache/
+backend/.mypy_cache/
+backend/.ruff_cache/
+backend/.coverage
+backend/htmlcov/
+backend/.tox/
+backend/*.egg-info/
+backend/dist/
+backend/build/
+backend/pip-log.txt
+backend/pip-delete-this-directory.txt
+
+# ===== Database =====
+*.db
+*.sqlite
+*.sqlite3
+postgres_data/
+backend/alembic/versions/__pycache__/
+
+# ===== Docker =====
+docker-compose.override.yml
+
+# ===== Logs =====
+logs/
+*.log
+*.log.*
+
+# ===== Test & Coverage =====
+coverage/
+.nyc_output/
+junit.xml
+test-results/
+
+# ===== Temporary Files =====
+tmp/
+temp/
+*.tmp
+*.bak
+*.old
+
+# ===== AI/ML artifacts =====
+*.pkl
+*.h5
+*.onnx
+models/checkpoints/
+*.ckpt
+
+# ===== Build outputs =====
+*.tar
+*.zip
+*.tar.gz
