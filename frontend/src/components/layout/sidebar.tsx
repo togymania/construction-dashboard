@@ -17,6 +17,7 @@ import {
 import { cn } from "@/lib/utils";
 import { Separator } from "@/components/ui/separator";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { useUser } from "@/components/providers/user-provider";
 
 const navigation = [
   { name: "Dashboard", href: "/", icon: LayoutDashboard },
@@ -27,8 +28,23 @@ const navigation = [
   { name: "Reports", href: "/reports", icon: FileBarChart },
 ];
 
+function getInitials(fullName: string): string {
+  const parts = fullName.trim().split(/\s+/);
+  if (parts.length === 0) return "?";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+function formatRole(role: string): string {
+  return role
+    .split("_")
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
+}
+
 export function Sidebar({ className }: { className?: string }) {
   const pathname = usePathname();
+  const { user } = useUser();
 
   return (
     <aside
@@ -37,7 +53,6 @@ export function Sidebar({ className }: { className?: string }) {
         className
       )}
     >
-      {/* Logo / Brand */}
       <div className="flex h-16 items-center gap-2 border-b px-6">
         <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary text-primary-foreground">
           <HardHat className="h-4 w-4" />
@@ -45,7 +60,6 @@ export function Sidebar({ className }: { className?: string }) {
         <span className="font-semibold tracking-tight">ConstructHub</span>
       </div>
 
-      {/* Navigation */}
       <nav className="flex-1 space-y-1 p-3">
         {navigation.map((item) => {
           const isActive =
@@ -74,7 +88,6 @@ export function Sidebar({ className }: { className?: string }) {
 
       <Separator />
 
-      {/* Bottom: Settings + User */}
       <div className="p-3 space-y-1">
         <Link
           href="/settings"
@@ -86,12 +99,14 @@ export function Sidebar({ className }: { className?: string }) {
 
         <div className="flex items-center gap-3 rounded-md px-3 py-2">
           <Avatar className="h-8 w-8">
-            <AvatarFallback>TT</AvatarFallback>
+            <AvatarFallback>{user ? getInitials(user.full_name) : "?"}</AvatarFallback>
           </Avatar>
           <div className="flex flex-col min-w-0">
-            <span className="text-sm font-medium truncate">Tolga Topal</span>
+            <span className="text-sm font-medium truncate">
+              {user?.full_name ?? "Loading..."}
+            </span>
             <span className="text-xs text-muted-foreground truncate">
-              Project Manager
+              {user ? formatRole(user.role) : ""}
             </span>
           </div>
         </div>
