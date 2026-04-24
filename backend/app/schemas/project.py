@@ -1,8 +1,9 @@
 ﻿"""Pydantic schemas for Project domain."""
-from datetime import date
+from datetime import date, datetime
+from decimal import Decimal
 from enum import Enum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ProjectStatus(str, Enum):
@@ -20,19 +21,58 @@ class ProjectHealth(str, Enum):
 
 
 class ProjectBase(BaseModel):
-    name: str = Field(..., description="Project name")
-    description: str | None = Field(None, description="Short description")
-    status: ProjectStatus
-    health: ProjectHealth
-    budget_usd: float = Field(..., description="Total budget in USD")
-    budget_spent_usd: float = Field(..., description="Amount spent to date")
+    """Shared fields between create and update."""
+
+    name: str = Field(..., min_length=1, max_length=255)
+    description: str | None = None
+    status: ProjectStatus = ProjectStatus.PLANNING
+    health: ProjectHealth = ProjectHealth.ON_TRACK
+    budget_usd: Decimal = Field(default=Decimal("0"), ge=0)
+    budget_spent_usd: Decimal = Field(default=Decimal("0"), ge=0)
     start_date: date
     end_date: date
-    progress_pct: float = Field(..., ge=0, le=100)
-    location: str
+    progress_pct: Decimal = Field(default=Decimal("0"), ge=0, le=100)
+    location: str = Field(..., min_length=1, max_length=255)
+
+
+class ProjectCreate(ProjectBase):
+    """Payload for creating a project."""
+    pass
+
+
+class ProjectUpdate(BaseModel):
+    """Payload for updating a project. All fields optional."""
+
+    name: str | None = Field(None, min_length=1, max_length=255)
+    description: str | None = None
+    status: ProjectStatus | None = None
+    health: ProjectHealth | None = None
+    budget_usd: Decimal | None = Field(None, ge=0)
+    budget_spent_usd: Decimal | None = Field(None, ge=0)
+    start_date: date | None = None
+    end_date: date | None = None
+    progress_pct: Decimal | None = Field(None, ge=0, le=100)
+    location: str | None = Field(None, min_length=1, max_length=255)
+
+
+class OwnerSummary(BaseModel):
+    """Minimal user info embedded in project responses."""
+
+    id: int
+    email: str
+    full_name: str
+
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ProjectResponse(ProjectBase):
-    id: int
+    """Project data returned from the API."""
 
-    model_config = {"from_attributes": True}
+    id: int
+    owner_id: int
+    owner: OwnerSummary
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)

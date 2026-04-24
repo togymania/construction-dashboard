@@ -14,6 +14,7 @@ from app.db.base import Base
 
 # Import all models here so Alembic can detect them for autogenerate
 from app.models import user  # noqa: F401
+from app.models import project  # noqa: F401
 
 # Alembic config
 config = context.config

@@ -1,4 +1,4 @@
-﻿"""Shared FastAPI dependencies (auth, db, etc.)."""
+﻿"""Shared FastAPI dependencies (auth, db, permissions)."""
 from typing import Annotated
 
 from fastapi import Depends, HTTPException, status
@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import decode_access_token
 from app.db.session import get_db
-from app.models.user import User
+from app.models.user import User, UserRole
 
 # OAuth2 scheme for Swagger UI Authorize button
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/token")
@@ -48,3 +48,23 @@ async def get_current_user(db: DBSession, token: Token) -> User:
 
 
 CurrentUser = Annotated[User, Depends(get_current_user)]
+
+
+def require_roles(*allowed_roles: UserRole):
+    """Dependency factory that enforces role-based access.
+
+    Usage:
+        @router.post("/projects", dependencies=[Depends(require_roles(UserRole.ADMIN))])
+        or inline:
+        user: User = Depends(require_roles(UserRole.ADMIN, UserRole.PROJECT_MANAGER))
+    """
+
+    async def checker(user: CurrentUser) -> User:
+        if user.role not in allowed_roles:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Requires role: {', '.join(r.value for r in allowed_roles)}",
+            )
+        return user
+
+    return checker

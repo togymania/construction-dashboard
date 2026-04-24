@@ -1,0 +1,310 @@
+﻿"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import { Plus, Search, MoreHorizontal, Briefcase } from "lucide-react";
+
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+
+import { api } from "@/lib/api-client";
+import type { Project, ProjectStatus, ProjectHealth } from "@/types/project";
+import {
+  formatCurrency,
+  formatLabel,
+  formatPercent,
+} from "@/lib/formatters";
+import { useUser } from "@/components/providers/user-provider";
+import { ProjectFormDialog } from "@/components/projects/project-form-dialog";
+
+const STATUS_VARIANT: Record<ProjectStatus, "default" | "secondary" | "outline"> = {
+  planning: "outline",
+  active: "default",
+  on_hold: "secondary",
+  completed: "secondary",
+  cancelled: "outline",
+};
+
+const HEALTH_LABEL: Record<ProjectHealth, string> = {
+  on_track: "On track",
+  at_risk: "At risk",
+  delayed: "Delayed",
+};
+
+const HEALTH_COLOR: Record<ProjectHealth, string> = {
+  on_track: "text-green-600 dark:text-green-500",
+  at_risk: "text-amber-600 dark:text-amber-500",
+  delayed: "text-red-600 dark:text-red-500",
+};
+
+export default function ProjectsPage() {
+  const { user } = useUser();
+  const [projects, setProjects] = useState<Project[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+
+  const [formOpen, setFormOpen] = useState(false);
+  const [editingProject, setEditingProject] = useState<Project | null>(null);
+  const [deletingProject, setDeletingProject] = useState<Project | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  const canCreate = user?.role === "admin" || user?.role === "project_manager";
+  const canDelete = user?.role === "admin";
+  const canEdit = user?.role === "admin" || user?.role === "project_manager";
+
+  async function loadProjects() {
+    try {
+      const data = await api.projects.list();
+      setProjects(data);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load projects");
+    }
+  }
+
+  useEffect(() => {
+    loadProjects();
+  }, []);
+
+  const filtered = useMemo(() => {
+    if (!projects) return [];
+    const q = search.trim().toLowerCase();
+    if (!q) return projects;
+    return projects.filter(
+      (p) =>
+        p.name.toLowerCase().includes(q) ||
+        p.location.toLowerCase().includes(q) ||
+        p.owner.full_name.toLowerCase().includes(q)
+    );
+  }, [projects, search]);
+
+  const isLoading = projects === null && !error;
+
+  function handleCreate() {
+    setEditingProject(null);
+    setFormOpen(true);
+  }
+
+  function handleEdit(project: Project) {
+    setEditingProject(project);
+    setFormOpen(true);
+  }
+
+  async function handleConfirmDelete() {
+    if (!deletingProject) return;
+    setIsDeleting(true);
+    try {
+      await api.projects.delete(deletingProject.id);
+      setDeletingProject(null);
+      await loadProjects();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Delete failed");
+    } finally {
+      setIsDeleting(false);
+    }
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between gap-4">
+        <div>
+          <h2 className="text-2xl font-semibold tracking-tight">Projects</h2>
+          <p className="text-sm text-muted-foreground mt-1">
+            Manage your construction projects portfolio
+          </p>
+        </div>
+        {canCreate && (
+          <Button onClick={handleCreate}>
+            <Plus className="mr-2 h-4 w-4" />
+            New Project
+          </Button>
+        )}
+      </div>
+
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
+          <CardTitle className="text-base font-medium">All Projects</CardTitle>
+          <div className="relative w-64">
+            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+            <Input
+              type="search"
+              placeholder="Search name, location..."
+              className="pl-8"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
+        </CardHeader>
+
+        <CardContent className="p-0">
+          {error && (
+            <div className="px-6 py-4 text-sm text-destructive border-b border-destructive/20 bg-destructive/10">
+              {error}
+            </div>
+          )}
+
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="w-[28%]">Name</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Health</TableHead>
+                <TableHead>Location</TableHead>
+                <TableHead className="text-right">Budget</TableHead>
+                <TableHead className="text-right">Progress</TableHead>
+                <TableHead>Owner</TableHead>
+                <TableHead className="w-[40px]"></TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {isLoading ? (
+                Array.from({ length: 5 }).map((_, i) => (
+                  <TableRow key={i}>
+                    {Array.from({ length: 8 }).map((_, j) => (
+                      <TableCell key={j}>
+                        <Skeleton className="h-4 w-full" />
+                      </TableCell>
+                    ))}
+                  </TableRow>
+                ))
+              ) : filtered.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={8} className="h-32 text-center">
+                    <div className="flex flex-col items-center justify-center gap-2 text-muted-foreground">
+                      <Briefcase className="h-8 w-8" />
+                      <p className="text-sm">
+                        {search ? "No projects match your search." : "No projects yet."}
+                      </p>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ) : (
+                filtered.map((p) => (
+                  <TableRow key={p.id}>
+                    <TableCell className="font-medium">{p.name}</TableCell>
+                    <TableCell>
+                      <Badge variant={STATUS_VARIANT[p.status]} className="text-xs">
+                        {formatLabel(p.status)}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      <span className={`text-xs font-medium ${HEALTH_COLOR[p.health]}`}>
+                        {HEALTH_LABEL[p.health]}
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground">
+                      {p.location}
+                    </TableCell>
+                    <TableCell className="text-right font-medium">
+                      {formatCurrency(p.budget_usd)}
+                    </TableCell>
+                    <TableCell className="text-right text-sm">
+                      {formatPercent(p.progress_pct)}
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground">
+                      {p.owner.full_name}
+                    </TableCell>
+                    <TableCell>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon" className="h-8 w-8">
+                            <MoreHorizontal className="h-4 w-4" />
+                            <span className="sr-only">Actions</span>
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          {canEdit && (
+                            <DropdownMenuItem onClick={() => handleEdit(p)}>
+                              Edit
+                            </DropdownMenuItem>
+                          )}
+                          {canDelete && (
+                            <DropdownMenuItem
+                              onClick={() => setDeletingProject(p)}
+                              className="text-destructive focus:text-destructive"
+                            >
+                              Delete
+                            </DropdownMenuItem>
+                          )}
+                          {!canEdit && !canDelete && (
+                            <DropdownMenuItem disabled>No actions available</DropdownMenuItem>
+                          )}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+
+      <ProjectFormDialog
+        open={formOpen}
+        onOpenChange={setFormOpen}
+        project={editingProject}
+        onSuccess={loadProjects}
+      />
+
+      <AlertDialog
+        open={deletingProject !== null}
+        onOpenChange={(open) => !open && setDeletingProject(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this project?</AlertDialogTitle>
+            <AlertDialogDescription>
+              <span className="font-medium text-foreground">
+                {deletingProject?.name}
+              </span>{" "}
+              will be archived and removed from the list. This action can be reversed
+              later from the database.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleConfirmDelete}
+              disabled={isDeleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isDeleting ? "Deleting..." : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  );
+}

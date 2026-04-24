@@ -35,9 +35,13 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
       const body = await response.json();
       detail = body.detail || detail;
     } catch {
-      // Response not JSON, keep statusText
+      // not JSON
     }
     throw new ApiError(response.status, detail);
+  }
+
+  if (response.status === 204) {
+    return undefined as T;
   }
 
   return response.json() as Promise<T>;
@@ -46,6 +50,19 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 import type { Project } from "@/types/project";
 import type { DashboardStats } from "@/types/dashboard";
 import type { User, TokenResponse } from "@/lib/auth";
+
+interface ProjectPayload {
+  name: string;
+  description?: string | null;
+  status: string;
+  health: string;
+  budget_usd: number;
+  budget_spent_usd: number;
+  start_date: string;
+  end_date: string;
+  progress_pct: number;
+  location: string;
+}
 
 export const api = {
   auth: {
@@ -64,6 +81,20 @@ export const api = {
   projects: {
     list: () => request<Project[]>("/projects"),
     get: (id: number) => request<Project>("/projects/" + id),
+    create: (data: ProjectPayload) =>
+      request<Project>("/projects", {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+    update: (id: number, data: Partial<ProjectPayload>) =>
+      request<Project>("/projects/" + id, {
+        method: "PATCH",
+        body: JSON.stringify(data),
+      }),
+    delete: (id: number) =>
+      request<void>("/projects/" + id, {
+        method: "DELETE",
+      }),
   },
   dashboard: {
     stats: () => request<DashboardStats>("/dashboard/stats"),
