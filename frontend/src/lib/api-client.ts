@@ -1,4 +1,4 @@
-﻿import { getToken } from "@/lib/auth";
+import { getToken } from "@/lib/auth";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 const API_V1 = API_BASE_URL + "/api/v1";
@@ -14,8 +14,10 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const url = path.startsWith("http") ? path : API_V1 + path;
   const token = typeof window !== "undefined" ? getToken() : null;
 
+  const isFormData = options?.body instanceof FormData;
+
   const headers: Record<string, string> = {
-    "Content-Type": "application/json",
+    ...(isFormData ? {} : { "Content-Type": "application/json" }),
     ...(options?.headers as Record<string, string>),
   };
 
@@ -58,6 +60,10 @@ import type {
   BudgetItemPayload,
   BudgetItemUpdatePayload,
   BudgetSummary,
+  Expense,
+  ExpensePayload,
+  ExpenseUpdatePayload,
+  ExpenseImportResult,
 } from "@/types/budget";
 
 interface ProjectPayload {
@@ -151,5 +157,53 @@ export const api = {
       }),
     summaryForProject: (projectId: number) =>
       request<BudgetSummary>("/projects/" + projectId + "/budget-summary"),
+  },
+  expenses: {
+    listForProject: (
+      projectId: number,
+      params?: {
+        category_id?: number;
+        date_from?: string;
+        date_to?: string;
+        search?: string;
+      }
+    ) => {
+      const qs = new URLSearchParams();
+      if (params?.category_id) qs.set("category_id", String(params.category_id));
+      if (params?.date_from) qs.set("date_from", params.date_from);
+      if (params?.date_to) qs.set("date_to", params.date_to);
+      if (params?.search) qs.set("search", params.search);
+      const query = qs.toString();
+      return request<Expense[]>(
+        "/projects/" + projectId + "/expenses" + (query ? "?" + query : "")
+      );
+    },
+    createForProject: (projectId: number, data: ExpensePayload) =>
+      request<Expense>("/projects/" + projectId + "/expenses", {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+    importExcel: (
+      projectId: number,
+      file: File,
+      defaultCategoryId: number
+    ) => {
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("default_category_id", String(defaultCategoryId));
+      return request<ExpenseImportResult>(
+        "/projects/" + projectId + "/expenses/import",
+        { method: "POST", body: fd }
+      );
+    },
+    update: (id: number, data: ExpenseUpdatePayload) =>
+      request<Expense>("/expenses/" + id, {
+        method: "PUT",
+        body: JSON.stringify(data),
+      }),
+    delete: (id: number) =>
+      request<void>("/expenses/" + id, {
+        method: "DELETE",
+      }),
   },
 };

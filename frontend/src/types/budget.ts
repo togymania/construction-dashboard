@@ -1,4 +1,4 @@
-﻿// ---------- Budget Category ----------
+// ---------- Budget Category ----------
 
 export interface BudgetCategory {
   id: number;
@@ -81,3 +81,57 @@ export interface BudgetSummary {
   utilization_pct: number;
   by_category: BudgetCategoryBreakdown[];
 }
+
+// ---------- Expense ----------
+
+export interface Expense {
+  id: number;
+  project_id: number;
+  budget_item_id: number | null;
+  category_id: number;
+  category: CategorySummary;
+  description: string;
+  amount: string;
+  expense_date: string;
+  vendor: string | null;
+  invoice_number: string | null;
+  notes: string | null;
+  status: string;
+  creator_name: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ExpensePayload {
+  category_id: number;
+  budget_item_id?: number | null;
+  description: string;
+  amount: number;
+  expense_date: string;
+  vendor?: string | null;
+  invoice_number?: string | null;
+  notes?: string | null;
+}
+
+export interface ExpenseUpdatePayload {
+  category_id?: number;
+  budget_item_id?: number | null;
+  description?: string;
+  amount?: number;
+  expense_date?: string;
+  vendor?: string | null;
+  invoice_number?: string | null;
+  notes?: string | null;
+}
+
+export interface ImportRowError {
+  row: number;
+  reason: string;
+}
+
+export interface ExpenseImportResult {
+  imported_count: number;
+  skipped_count: number;
+  errors: ImportRowError[];
+}
+

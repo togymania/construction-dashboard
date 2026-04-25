@@ -1,6 +1,6 @@
-﻿"use client";
+"use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
   Plus,
@@ -9,6 +9,9 @@ import {
   ArrowLeft,
   TrendingUp,
   AlertCircle,
+  FileSpreadsheet,
+  Trash2,
+  Pencil,
 } from "lucide-react";
 import {
   PieChart,
@@ -34,6 +37,12 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@/components/ui/tabs";
+import {
   Table,
   TableBody,
   TableCell,
@@ -57,13 +66,32 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 import { api } from "@/lib/api-client";
-import { formatRub, formatRubCompact, formatPercent } from "@/lib/formatters";
+import {
+  formatRub,
+  formatRubCompact,
+  formatPercent,
+  formatDate,
+} from "@/lib/formatters";
 import type { Project } from "@/types/project";
-import type { BudgetItem, BudgetSummary } from "@/types/budget";
+import type {
+  BudgetCategory,
+  BudgetItem,
+  BudgetSummary,
+  Expense,
+} from "@/types/budget";
 import { useUser } from "@/components/providers/user-provider";
 import { BudgetItemFormDialog } from "@/components/budget-items/budget-item-form-dialog";
+import { ExpenseFormDialog } from "@/components/expenses/expense-form-dialog";
+import { ExpenseImportDialog } from "@/components/expenses/expense-import-dialog";
 
 const CHART_COLORS = [
   "#3b82f6",
@@ -85,26 +113,43 @@ export default function ProjectBudgetPage() {
   const [project, setProject] = useState<Project | null>(null);
   const [items, setItems] = useState<BudgetItem[] | null>(null);
   const [summary, setSummary] = useState<BudgetSummary | null>(null);
+  const [categories, setCategories] = useState<BudgetCategory[]>([]);
+  const [expenses, setExpenses] = useState<Expense[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // Budget Item dialogs
   const [formOpen, setFormOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<BudgetItem | null>(null);
   const [deletingItem, setDeletingItem] = useState<BudgetItem | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+
+  // Expense dialogs
+  const [expenseFormOpen, setExpenseFormOpen] = useState(false);
+  const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
+  const [deletingExpense, setDeletingExpense] = useState<Expense | null>(null);
+  const [isDeletingExpense, setIsDeletingExpense] = useState(false);
+  const [importDialogOpen, setImportDialogOpen] = useState(false);
+
+  // Expense filters
+  const [filterCategoryId, setFilterCategoryId] = useState<string>("all");
 
   const canManage = user?.role === "admin" || user?.role === "project_manager";
 
   async function loadAll() {
     if (isNaN(projectId)) return;
     try {
-      const [proj, itemList, summ] = await Promise.all([
+      const [proj, itemList, summ, cats, expList] = await Promise.all([
         api.projects.get(projectId),
         api.budgetItems.listForProject(projectId),
         api.budgetItems.summaryForProject(projectId),
+        api.budgetCategories.list(),
+        api.expenses.listForProject(projectId),
       ]);
       setProject(proj);
       setItems(itemList);
       setSummary(summ);
+      setCategories(cats);
+      setExpenses(expList);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load budget");
@@ -118,6 +163,7 @@ export default function ProjectBudgetPage() {
 
   const isLoading = project === null && items === null && !error;
 
+  // ---- Budget Items: grouped by category ----
   const groupedItems = useMemo(() => {
     if (!items) return [];
     const groups = new Map<number, { categoryName: string; items: BudgetItem[] }>();
@@ -140,6 +186,19 @@ export default function ProjectBudgetPage() {
     }));
   }, [items]);
 
+  // ---- Expenses: filtered ----
+  const filteredExpenses = useMemo(() => {
+    if (!expenses) return [];
+    if (filterCategoryId === "all") return expenses;
+    return expenses.filter((e) => e.category_id === parseInt(filterCategoryId, 10));
+  }, [expenses, filterCategoryId]);
+
+  const expenseTotalFiltered = useMemo(
+    () => filteredExpenses.reduce((sum, e) => sum + parseFloat(e.amount), 0),
+    [filteredExpenses]
+  );
+
+  // ---- Budget Item handlers ----
   function handleCreate() {
     setEditingItem(null);
     setFormOpen(true);
@@ -164,6 +223,32 @@ export default function ProjectBudgetPage() {
     }
   }
 
+  // ---- Expense handlers ----
+  function handleCreateExpense() {
+    setEditingExpense(null);
+    setExpenseFormOpen(true);
+  }
+
+  function handleEditExpense(expense: Expense) {
+    setEditingExpense(expense);
+    setExpenseFormOpen(true);
+  }
+
+  async function handleConfirmDeleteExpense() {
+    if (!deletingExpense) return;
+    setIsDeletingExpense(true);
+    try {
+      await api.expenses.delete(deletingExpense.id);
+      setDeletingExpense(null);
+      await loadAll();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Delete failed");
+    } finally {
+      setIsDeletingExpense(false);
+    }
+  }
+
+  // ---- Charts ----
   const pieData = useMemo(() => {
     if (!summary) return [];
     return summary.by_category.map((c) => ({
@@ -188,6 +273,8 @@ export default function ProjectBudgetPage() {
       : utilizationPct < 100
       ? "text-amber-600 dark:text-amber-500"
       : "text-red-600 dark:text-red-500";
+
+  // ---- Render ----
 
   if (isLoading) {
     return (
@@ -232,15 +319,10 @@ export default function ProjectBudgetPage() {
               {project?.location} &middot; Budget breakdown
             </p>
           </div>
-          {canManage && (
-            <Button onClick={handleCreate}>
-              <Plus className="mr-2 h-4 w-4" />
-              Add Budget Item
-            </Button>
-          )}
         </div>
       </div>
 
+      {/* KPI Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Card>
           <CardHeader className="pb-2">
@@ -283,7 +365,7 @@ export default function ProjectBudgetPage() {
               {formatRubCompact(summary?.total_spent)}
             </div>
             <p className="text-xs text-muted-foreground mt-1">
-              + {formatRubCompact(summary?.total_pending)} pending
+              {expenses?.length ?? 0} expense records
             </p>
           </CardContent>
         </Card>
@@ -305,6 +387,7 @@ export default function ProjectBudgetPage() {
         </Card>
       </div>
 
+      {/* Charts */}
       {summary && summary.by_category.length > 0 && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           <Card>
@@ -373,92 +456,284 @@ export default function ProjectBudgetPage() {
         </div>
       )}
 
-      <Card>
-        <CardHeader className="pb-4">
-          <CardTitle className="text-base font-medium">Budget Items</CardTitle>
-        </CardHeader>
-        <CardContent className="p-0">
-          {items === null ? (
-            <div className="px-6 py-4">
-              <Skeleton className="h-32 w-full" />
-            </div>
-          ) : items.length === 0 ? (
-            <div className="flex flex-col items-center justify-center gap-2 py-16 text-muted-foreground">
-              <Wallet className="h-8 w-8" />
-              <p className="text-sm">No budget items yet.</p>
+      {/* Tabs: Budget Items | Expenses */}
+      <Tabs defaultValue="budget-items" className="space-y-4">
+        <TabsList>
+          <TabsTrigger value="budget-items">
+            Budget Items
+            {items && items.length > 0 && (
+              <Badge variant="secondary" className="ml-2 text-xs">
+                {items.length}
+              </Badge>
+            )}
+          </TabsTrigger>
+          <TabsTrigger value="expenses">
+            Expenses
+            {expenses && expenses.length > 0 && (
+              <Badge variant="secondary" className="ml-2 text-xs">
+                {expenses.length}
+              </Badge>
+            )}
+          </TabsTrigger>
+        </TabsList>
+
+        {/* ===== Budget Items Tab ===== */}
+        <TabsContent value="budget-items">
+          <Card>
+            <CardHeader className="pb-4 flex flex-row items-center justify-between">
+              <CardTitle className="text-base font-medium">Budget Items</CardTitle>
               {canManage && (
-                <Button variant="outline" size="sm" onClick={handleCreate} className="mt-2">
-                  <Plus className="mr-2 h-4 w-4" /> Add the first one
+                <Button size="sm" onClick={handleCreate}>
+                  <Plus className="mr-2 h-4 w-4" />
+                  Add Budget Item
                 </Button>
               )}
-            </div>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Description</TableHead>
-                  <TableHead className="w-[120px]">Notes</TableHead>
-                  <TableHead className="text-right w-[200px]">Planned Amount</TableHead>
-                  <TableHead className="w-[40px]"></TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {groupedItems.map((group) => (
-                  <>
-                    <TableRow key={`group-${group.categoryId}`} className="bg-muted/30 hover:bg-muted/30">
-                      <TableCell colSpan={2} className="font-semibold text-xs uppercase tracking-wider text-muted-foreground py-2">
-                        {group.categoryName}
-                      </TableCell>
-                      <TableCell className="text-right font-semibold text-sm py-2">
-                        {formatRub(group.subtotal)}
-                      </TableCell>
-                      <TableCell className="py-2"></TableCell>
+            </CardHeader>
+            <CardContent className="p-0">
+              {items === null ? (
+                <div className="px-6 py-4">
+                  <Skeleton className="h-32 w-full" />
+                </div>
+              ) : items.length === 0 ? (
+                <div className="flex flex-col items-center justify-center gap-2 py-16 text-muted-foreground">
+                  <Wallet className="h-8 w-8" />
+                  <p className="text-sm">No budget items yet.</p>
+                  {canManage && (
+                    <Button variant="outline" size="sm" onClick={handleCreate} className="mt-2">
+                      <Plus className="mr-2 h-4 w-4" /> Add the first one
+                    </Button>
+                  )}
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Description</TableHead>
+                      <TableHead className="w-[120px]">Notes</TableHead>
+                      <TableHead className="text-right w-[200px]">Planned Amount</TableHead>
+                      <TableHead className="w-[40px]"></TableHead>
                     </TableRow>
-                    {group.items.map((item) => (
-                      <TableRow key={item.id}>
-                        <TableCell className="font-medium pl-8">{item.description}</TableCell>
-                        <TableCell className="text-xs text-muted-foreground truncate max-w-[120px]">
-                          {item.notes || "-"}
-                        </TableCell>
-                        <TableCell className="text-right tabular-nums">
-                          {formatRub(item.planned_amount)}
-                        </TableCell>
-                        <TableCell>
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button variant="ghost" size="icon" className="h-8 w-8">
-                                <MoreHorizontal className="h-4 w-4" />
-                              </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                              {canManage ? (
-                                <>
-                                  <DropdownMenuItem onClick={() => handleEdit(item)}>
+                  </TableHeader>
+                  <TableBody>
+                    {groupedItems.map((group) => (
+                      <Fragment key={`group-${group.categoryId}`}>
+                        <TableRow className="bg-muted/30 hover:bg-muted/30">
+                          <TableCell colSpan={2} className="font-semibold text-xs uppercase tracking-wider text-muted-foreground py-2">
+                            {group.categoryName}
+                          </TableCell>
+                          <TableCell className="text-right font-semibold text-sm py-2">
+                            {formatRub(group.subtotal)}
+                          </TableCell>
+                          <TableCell className="py-2"></TableCell>
+                        </TableRow>
+                        {group.items.map((item) => (
+                          <TableRow key={item.id}>
+                            <TableCell className="font-medium pl-8">{item.description}</TableCell>
+                            <TableCell className="text-xs text-muted-foreground truncate max-w-[120px]">
+                              {item.notes || "-"}
+                            </TableCell>
+                            <TableCell className="text-right tabular-nums">
+                              {formatRub(item.planned_amount)}
+                            </TableCell>
+                            <TableCell>
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <Button variant="ghost" size="icon" className="h-8 w-8">
+                                    <MoreHorizontal className="h-4 w-4" />
+                                  </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end">
+                                  {canManage ? (
+                                    <>
+                                      <DropdownMenuItem onClick={() => handleEdit(item)}>
+                                        Edit
+                                      </DropdownMenuItem>
+                                      <DropdownMenuItem
+                                        onClick={() => setDeletingItem(item)}
+                                        className="text-destructive focus:text-destructive"
+                                      >
+                                        Delete
+                                      </DropdownMenuItem>
+                                    </>
+                                  ) : (
+                                    <DropdownMenuItem disabled>No actions available</DropdownMenuItem>
+                                  )}
+                                </DropdownMenuContent>
+                              </DropdownMenu>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </Fragment>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* ===== Expenses Tab ===== */}
+        <TabsContent value="expenses">
+          <Card>
+            <CardHeader className="pb-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <CardTitle className="text-base font-medium">Expenses</CardTitle>
+                <div className="flex items-center gap-2">
+                  {/* Category filter */}
+                  <Select value={filterCategoryId} onValueChange={setFilterCategoryId}>
+                    <SelectTrigger className="w-[180px] h-9 text-sm">
+                      <SelectValue placeholder="All categories" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Categories</SelectItem>
+                      {categories
+                        .filter((c) => c.is_active)
+                        .map((cat) => (
+                          <SelectItem key={cat.id} value={String(cat.id)}>
+                            {cat.name}
+                          </SelectItem>
+                        ))}
+                    </SelectContent>
+                  </Select>
+
+                  {canManage && (
+                    <>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setImportDialogOpen(true)}
+                      >
+                        <FileSpreadsheet className="mr-2 h-4 w-4" />
+                        Import Excel
+                      </Button>
+                      <Button size="sm" onClick={handleCreateExpense}>
+                        <Plus className="mr-2 h-4 w-4" />
+                        Add Expense
+                      </Button>
+                    </>
+                  )}
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="p-0">
+              {expenses === null ? (
+                <div className="px-6 py-4">
+                  <Skeleton className="h-32 w-full" />
+                </div>
+              ) : filteredExpenses.length === 0 ? (
+                <div className="flex flex-col items-center justify-center gap-2 py-16 text-muted-foreground">
+                  <Wallet className="h-8 w-8" />
+                  <p className="text-sm">
+                    {expenses.length === 0
+                      ? "No expenses recorded yet."
+                      : "No expenses match the selected filter."}
+                  </p>
+                  {canManage && expenses.length === 0 && (
+                    <div className="flex gap-2 mt-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setImportDialogOpen(true)}
+                      >
+                        <FileSpreadsheet className="mr-2 h-4 w-4" />
+                        Import from Excel
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={handleCreateExpense}
+                      >
+                        <Plus className="mr-2 h-4 w-4" />
+                        Add manually
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Vendor</TableHead>
+                        <TableHead>Invoice #</TableHead>
+                        <TableHead>Description</TableHead>
+                        <TableHead>Category</TableHead>
+                        <TableHead className="text-right">Amount</TableHead>
+                        <TableHead>Date</TableHead>
+                        <TableHead className="w-[40px]"></TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {filteredExpenses.map((exp) => (
+                        <TableRow key={exp.id}>
+                          <TableCell className="font-medium">
+                            {exp.vendor || "-"}
+                          </TableCell>
+                          <TableCell className="text-xs text-muted-foreground">
+                            {exp.invoice_number || "-"}
+                          </TableCell>
+                          <TableCell className="max-w-[200px] truncate">
+                            {exp.description}
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant="outline" className="text-xs">
+                              {exp.category.name}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-right tabular-nums font-medium">
+                            {formatRub(exp.amount)}
+                          </TableCell>
+                          <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
+                            {formatDate(exp.expense_date)}
+                          </TableCell>
+                          <TableCell>
+                            {canManage && (
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <Button variant="ghost" size="icon" className="h-8 w-8">
+                                    <MoreHorizontal className="h-4 w-4" />
+                                  </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end">
+                                  <DropdownMenuItem onClick={() => handleEditExpense(exp)}>
+                                    <Pencil className="mr-2 h-4 w-4" />
                                     Edit
                                   </DropdownMenuItem>
                                   <DropdownMenuItem
-                                    onClick={() => setDeletingItem(item)}
+                                    onClick={() => setDeletingExpense(exp)}
                                     className="text-destructive focus:text-destructive"
                                   >
+                                    <Trash2 className="mr-2 h-4 w-4" />
                                     Delete
                                   </DropdownMenuItem>
-                                </>
-                              ) : (
-                                <DropdownMenuItem disabled>No actions available</DropdownMenuItem>
-                              )}
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
+                                </DropdownMenuContent>
+                              </DropdownMenu>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                  {/* Total bar */}
+                  <div className="flex items-center justify-between px-6 py-3 border-t bg-muted/30">
+                    <span className="text-sm text-muted-foreground">
+                      {filteredExpenses.length} expense{filteredExpenses.length !== 1 ? "s" : ""}
+                      {filterCategoryId !== "all" ? " (filtered)" : ""}
+                    </span>
+                    <span className="font-semibold tabular-nums">
+                      {formatRub(expenseTotalFiltered)}
+                    </span>
+                  </div>
+                </>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
 
+      {/* ===== Dialogs ===== */}
+
+      {/* Budget Item Form */}
       <BudgetItemFormDialog
         open={formOpen}
         onOpenChange={setFormOpen}
@@ -467,6 +742,7 @@ export default function ProjectBudgetPage() {
         onSuccess={loadAll}
       />
 
+      {/* Budget Item Delete Confirm */}
       <AlertDialog
         open={deletingItem !== null}
         onOpenChange={(open) => !open && setDeletingItem(null)}
@@ -490,6 +766,63 @@ export default function ProjectBudgetPage() {
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               {isDeleting ? "Deleting..." : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Expense Form */}
+      <ExpenseFormDialog
+        open={expenseFormOpen}
+        onOpenChange={setExpenseFormOpen}
+        projectId={projectId}
+        expense={editingExpense}
+        categories={categories}
+        budgetItems={items ?? []}
+        onSuccess={loadAll}
+      />
+
+      {/* Expense Import */}
+      <ExpenseImportDialog
+        open={importDialogOpen}
+        onOpenChange={setImportDialogOpen}
+        projectId={projectId}
+        categories={categories}
+        onSuccess={loadAll}
+      />
+
+      {/* Expense Delete Confirm */}
+      <AlertDialog
+        open={deletingExpense !== null}
+        onOpenChange={(open) => !open && setDeletingExpense(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this expense?</AlertDialogTitle>
+            <AlertDialogDescription>
+              <span className="font-medium text-foreground">
+                {deletingExpense?.description}
+              </span>
+              {deletingExpense?.vendor && (
+                <>
+                  {" "}from{" "}
+                  <span className="font-medium text-foreground">
+                    {deletingExpense.vendor}
+                  </span>
+                </>
+              )}{" "}
+              ({formatRub(deletingExpense?.amount)}) will be permanently removed.
+              This will update the budget summary.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeletingExpense}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleConfirmDeleteExpense}
+              disabled={isDeletingExpense}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isDeletingExpense ? "Deleting..." : "Delete"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
