@@ -19,14 +19,10 @@ export const projectFormSchema = z
     description: z.string().max(5000).optional().or(z.literal("")),
     status: projectStatusSchema,
     health: projectHealthSchema,
-    budget_usd: z
+    budget_rub: z
       .union([z.string(), z.number()])
       .transform((v) => (typeof v === "string" ? parseFloat(v) : v))
       .refine((v) => !isNaN(v) && v >= 0, "Budget must be a positive number"),
-    budget_spent_usd: z
-      .union([z.string(), z.number()])
-      .transform((v) => (typeof v === "string" ? parseFloat(v) : v))
-      .refine((v) => !isNaN(v) && v >= 0, "Spent must be a positive number"),
     start_date: z.string().min(1, "Start date is required"),
     end_date: z.string().min(1, "End date is required"),
     progress_pct: z

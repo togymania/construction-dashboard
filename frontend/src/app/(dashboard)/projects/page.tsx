@@ -1,6 +1,7 @@
 ﻿"use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Plus, Search, MoreHorizontal, Briefcase } from "lucide-react";
 
 import {
@@ -41,7 +42,7 @@ import {
 import { api } from "@/lib/api-client";
 import type { Project, ProjectStatus, ProjectHealth } from "@/types/project";
 import {
-  formatCurrency,
+  formatRubCompact,
   formatLabel,
   formatPercent,
 } from "@/lib/formatters";
@@ -68,9 +69,36 @@ const HEALTH_COLOR: Record<ProjectHealth, string> = {
   delayed: "text-red-600 dark:text-red-500",
 };
 
+function getUtilizationBadge(pct: number | null): { label: string; className: string } {
+  if (pct === null) {
+    return { label: "—", className: "text-muted-foreground" };
+  }
+  if (pct === 0) {
+    return { label: "0%", className: "bg-muted text-muted-foreground" };
+  }
+  if (pct < 80) {
+    return {
+      label: `${pct.toFixed(0)}%`,
+      className: "bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-400",
+    };
+  }
+  if (pct <= 100) {
+    return {
+      label: `${pct.toFixed(0)}%`,
+      className: "bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-400",
+    };
+  }
+  return {
+    label: `${pct.toFixed(0)}%`,
+    className: "bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-400",
+  };
+}
+
 export default function ProjectsPage() {
+  const router = useRouter();
   const { user } = useUser();
   const [projects, setProjects] = useState<Project[] | null>(null);
+  const [utilization, setUtilization] = useState<Record<number, number>>({});
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
 
@@ -88,6 +116,16 @@ export default function ProjectsPage() {
       const data = await api.projects.list();
       setProjects(data);
       setError(null);
+
+      // Fire off summary calls in parallel - don't block the table render
+      data.forEach(async (p) => {
+        try {
+          const summary = await api.budgetItems.summaryForProject(p.id);
+          setUtilization((prev) => ({ ...prev, [p.id]: summary.utilization_pct }));
+        } catch {
+          // Silently ignore per-project failures
+        }
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load projects");
     }
@@ -119,6 +157,10 @@ export default function ProjectsPage() {
   function handleEdit(project: Project) {
     setEditingProject(project);
     setFormOpen(true);
+  }
+
+  function handleViewBudget(project: Project) {
+    router.push(`/projects/${project.id}/budget`);
   }
 
   async function handleConfirmDelete() {
@@ -177,11 +219,12 @@ export default function ProjectsPage() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead className="w-[28%]">Name</TableHead>
+                <TableHead className="w-[26%]">Name</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Health</TableHead>
                 <TableHead>Location</TableHead>
                 <TableHead className="text-right">Budget</TableHead>
+                <TableHead className="text-center">Used</TableHead>
                 <TableHead className="text-right">Progress</TableHead>
                 <TableHead>Owner</TableHead>
                 <TableHead className="w-[40px]"></TableHead>
@@ -191,7 +234,7 @@ export default function ProjectsPage() {
               {isLoading ? (
                 Array.from({ length: 5 }).map((_, i) => (
                   <TableRow key={i}>
-                    {Array.from({ length: 8 }).map((_, j) => (
+                    {Array.from({ length: 9 }).map((_, j) => (
                       <TableCell key={j}>
                         <Skeleton className="h-4 w-full" />
                       </TableCell>
@@ -200,7 +243,7 @@ export default function ProjectsPage() {
                 ))
               ) : filtered.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={8} className="h-32 text-center">
+                  <TableCell colSpan={9} className="h-32 text-center">
                     <div className="flex flex-col items-center justify-center gap-2 text-muted-foreground">
                       <Briefcase className="h-8 w-8" />
                       <p className="text-sm">
@@ -210,61 +253,72 @@ export default function ProjectsPage() {
                   </TableCell>
                 </TableRow>
               ) : (
-                filtered.map((p) => (
-                  <TableRow key={p.id}>
-                    <TableCell className="font-medium">{p.name}</TableCell>
-                    <TableCell>
-                      <Badge variant={STATUS_VARIANT[p.status]} className="text-xs">
-                        {formatLabel(p.status)}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <span className={`text-xs font-medium ${HEALTH_COLOR[p.health]}`}>
-                        {HEALTH_LABEL[p.health]}
-                      </span>
-                    </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">
-                      {p.location}
-                    </TableCell>
-                    <TableCell className="text-right font-medium">
-                      {formatCurrency(p.budget_usd)}
-                    </TableCell>
-                    <TableCell className="text-right text-sm">
-                      {formatPercent(p.progress_pct)}
-                    </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">
-                      {p.owner.full_name}
-                    </TableCell>
-                    <TableCell>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon" className="h-8 w-8">
-                            <MoreHorizontal className="h-4 w-4" />
-                            <span className="sr-only">Actions</span>
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          {canEdit && (
-                            <DropdownMenuItem onClick={() => handleEdit(p)}>
-                              Edit
+                filtered.map((p) => {
+                  const pct = utilization[p.id] ?? null;
+                  const badge = getUtilizationBadge(pct);
+                  return (
+                    <TableRow key={p.id}>
+                      <TableCell className="font-medium">{p.name}</TableCell>
+                      <TableCell>
+                        <Badge variant={STATUS_VARIANT[p.status]} className="text-xs">
+                          {formatLabel(p.status)}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <span className={`text-xs font-medium ${HEALTH_COLOR[p.health]}`}>
+                          {HEALTH_LABEL[p.health]}
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-sm text-muted-foreground">
+                        {p.location}
+                      </TableCell>
+                      <TableCell className="text-right font-medium">
+                        {formatRubCompact(p.budget_rub)}
+                      </TableCell>
+                      <TableCell className="text-center">
+                        <span
+                          className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium ${badge.className}`}
+                        >
+                          {badge.label}
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-right text-sm">
+                        {formatPercent(p.progress_pct)}
+                      </TableCell>
+                      <TableCell className="text-sm text-muted-foreground">
+                        {p.owner.full_name}
+                      </TableCell>
+                      <TableCell>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon" className="h-8 w-8">
+                              <MoreHorizontal className="h-4 w-4" />
+                              <span className="sr-only">Actions</span>
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem onClick={() => handleViewBudget(p)}>
+                              View Budget
                             </DropdownMenuItem>
-                          )}
-                          {canDelete && (
-                            <DropdownMenuItem
-                              onClick={() => setDeletingProject(p)}
-                              className="text-destructive focus:text-destructive"
-                            >
-                              Delete
-                            </DropdownMenuItem>
-                          )}
-                          {!canEdit && !canDelete && (
-                            <DropdownMenuItem disabled>No actions available</DropdownMenuItem>
-                          )}
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </TableCell>
-                  </TableRow>
-                ))
+                            {canEdit && (
+                              <DropdownMenuItem onClick={() => handleEdit(p)}>
+                                Edit
+                              </DropdownMenuItem>
+                            )}
+                            {canDelete && (
+                              <DropdownMenuItem
+                                onClick={() => setDeletingProject(p)}
+                                className="text-destructive focus:text-destructive"
+                              >
+                                Delete
+                              </DropdownMenuItem>
+                            )}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })
               )}
             </TableBody>
           </Table>

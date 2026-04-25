@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import {
   Briefcase,
-  DollarSign,
+  Wallet,
   TrendingUp,
   AlertTriangle,
   Clock,
@@ -27,7 +27,7 @@ import type { KPIMetric, DashboardStats } from "@/types/dashboard";
 
 const kpiIcons = {
   active_projects: Briefcase,
-  total_budget: DollarSign,
+  total_budget: Wallet,
   on_track: TrendingUp,
   open_risks: AlertTriangle,
 } as const;
@@ -195,3 +195,5 @@ export default function DashboardPage() {
     </div>
   );
 }
+
+

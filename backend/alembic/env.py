@@ -15,6 +15,9 @@ from app.db.base import Base
 # Import all models here so Alembic can detect them for autogenerate
 from app.models import user  # noqa: F401
 from app.models import project  # noqa: F401
+from app.models import budget  # noqa: F401
+from app.models import budget_category  # noqa: F401
+from app.models import expense  # noqa: F401
 
 # Alembic config
 config = context.config
@@ -74,3 +77,5 @@ if context.is_offline_mode():
     run_migrations_offline()
 else:
     run_migrations_online()
+
+

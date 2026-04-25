@@ -1,4 +1,4 @@
-﻿"""Pydantic schemas for Project domain."""
+"""Pydantic schemas for Project domain."""
 from datetime import date, datetime
 from decimal import Decimal
 from enum import Enum
@@ -27,8 +27,7 @@ class ProjectBase(BaseModel):
     description: str | None = None
     status: ProjectStatus = ProjectStatus.PLANNING
     health: ProjectHealth = ProjectHealth.ON_TRACK
-    budget_usd: Decimal = Field(default=Decimal("0"), ge=0)
-    budget_spent_usd: Decimal = Field(default=Decimal("0"), ge=0)
+    budget_rub: Decimal = Field(default=Decimal("0"), ge=0)
     start_date: date
     end_date: date
     progress_pct: Decimal = Field(default=Decimal("0"), ge=0, le=100)
@@ -37,6 +36,7 @@ class ProjectBase(BaseModel):
 
 class ProjectCreate(ProjectBase):
     """Payload for creating a project."""
+
     pass
 
 
@@ -47,8 +47,7 @@ class ProjectUpdate(BaseModel):
     description: str | None = None
     status: ProjectStatus | None = None
     health: ProjectHealth | None = None
-    budget_usd: Decimal | None = Field(None, ge=0)
-    budget_spent_usd: Decimal | None = Field(None, ge=0)
+    budget_rub: Decimal | None = Field(None, ge=0)
     start_date: date | None = None
     end_date: date | None = None
     progress_pct: Decimal | None = Field(None, ge=0, le=100)

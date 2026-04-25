@@ -1,4 +1,4 @@
-﻿"""Project CRUD endpoints."""
+"""Project CRUD endpoints."""
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
@@ -92,8 +92,7 @@ async def create_project(
         description=payload.description,
         status=payload.status,
         health=payload.health,
-        budget_usd=payload.budget_usd,
-        budget_spent_usd=payload.budget_spent_usd,
+        budget_rub=payload.budget_rub,
         start_date=payload.start_date,
         end_date=payload.end_date,
         progress_pct=payload.progress_pct,
@@ -131,7 +130,6 @@ async def update_project(
             detail="Project not found",
         )
 
-    # Permission check: admin, PM, or owner can update
     is_admin = user.role == UserRole.ADMIN
     is_pm = user.role == UserRole.PROJECT_MANAGER
     is_owner = project.owner_id == user.id
@@ -142,7 +140,6 @@ async def update_project(
             detail="Not authorized to update this project",
         )
 
-    # Apply only the fields that were provided
     update_data = payload.model_dump(exclude_unset=True)
     for field, value in update_data.items():
         setattr(project, field, value)

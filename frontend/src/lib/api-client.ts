@@ -50,14 +50,22 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 import type { Project } from "@/types/project";
 import type { DashboardStats } from "@/types/dashboard";
 import type { User, TokenResponse } from "@/lib/auth";
+import type {
+  BudgetCategory,
+  BudgetCategoryPayload,
+  BudgetCategoryUpdatePayload,
+  BudgetItem,
+  BudgetItemPayload,
+  BudgetItemUpdatePayload,
+  BudgetSummary,
+} from "@/types/budget";
 
 interface ProjectPayload {
   name: string;
   description?: string | null;
   status: string;
   health: string;
-  budget_usd: number;
-  budget_spent_usd: number;
+  budget_rub: number;
   start_date: string;
   end_date: string;
   progress_pct: number;
@@ -98,5 +106,50 @@ export const api = {
   },
   dashboard: {
     stats: () => request<DashboardStats>("/dashboard/stats"),
+  },
+  budgetCategories: {
+    list: (includeInactive = false) =>
+      request<BudgetCategory[]>(
+        "/budget-categories" + (includeInactive ? "?include_inactive=true" : "")
+      ),
+    create: (data: BudgetCategoryPayload) =>
+      request<BudgetCategory>("/budget-categories", {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+    update: (id: number, data: BudgetCategoryUpdatePayload) =>
+      request<BudgetCategory>("/budget-categories/" + id, {
+        method: "PUT",
+        body: JSON.stringify(data),
+      }),
+    delete: (id: number) =>
+      request<void>("/budget-categories/" + id, {
+        method: "DELETE",
+      }),
+    reorder: (order: number[]) =>
+      request<BudgetCategory[]>("/budget-categories/reorder", {
+        method: "PATCH",
+        body: JSON.stringify({ order }),
+      }),
+  },
+  budgetItems: {
+    listForProject: (projectId: number) =>
+      request<BudgetItem[]>("/projects/" + projectId + "/budget-items"),
+    createForProject: (projectId: number, data: BudgetItemPayload) =>
+      request<BudgetItem>("/projects/" + projectId + "/budget-items", {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+    update: (id: number, data: BudgetItemUpdatePayload) =>
+      request<BudgetItem>("/budget-items/" + id, {
+        method: "PUT",
+        body: JSON.stringify(data),
+      }),
+    delete: (id: number) =>
+      request<void>("/budget-items/" + id, {
+        method: "DELETE",
+      }),
+    summaryForProject: (projectId: number) =>
+      request<BudgetSummary>("/projects/" + projectId + "/budget-summary"),
   },
 };

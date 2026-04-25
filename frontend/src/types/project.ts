@@ -13,8 +13,7 @@ export interface Project {
   description: string | null;
   status: ProjectStatus;
   health: ProjectHealth;
-  budget_usd: string;
-  budget_spent_usd: string;
+  budget_rub: string;
   start_date: string;
   end_date: string;
   progress_pct: string;

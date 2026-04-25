@@ -61,8 +61,7 @@ export function ProjectFormDialog({
       description: "",
       status: "planning",
       health: "on_track",
-      budget_usd: 0,
-      budget_spent_usd: 0,
+      budget_rub: 0,
       start_date: "",
       end_date: "",
       progress_pct: 0,
@@ -79,8 +78,7 @@ export function ProjectFormDialog({
         description: project.description ?? "",
         status: project.status,
         health: project.health,
-        budget_usd: parseFloat(project.budget_usd),
-        budget_spent_usd: parseFloat(project.budget_spent_usd),
+        budget_rub: parseFloat(project.budget_rub),
         start_date: project.start_date.slice(0, 10),
         end_date: project.end_date.slice(0, 10),
         progress_pct: parseFloat(project.progress_pct),
@@ -92,8 +90,7 @@ export function ProjectFormDialog({
         description: "",
         status: "planning",
         health: "on_track",
-        budget_usd: 0,
-        budget_spent_usd: 0,
+        budget_rub: 0,
         start_date: "",
         end_date: "",
         progress_pct: 0,
@@ -111,8 +108,7 @@ export function ProjectFormDialog({
       description: data.description || null,
       status: data.status,
       health: data.health,
-      budget_usd: data.budget_usd,
-      budget_spent_usd: data.budget_spent_usd,
+      budget_rub: data.budget_rub,
       start_date: data.start_date,
       end_date: data.end_date,
       progress_pct: data.progress_pct,
@@ -194,36 +190,18 @@ export function ProjectFormDialog({
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="budget_usd">Budget (USD)</Label>
-              <Input
-                id="budget_usd"
-                type="number"
-                step="0.01"
-                min="0"
-                {...register("budget_usd", { valueAsNumber: true })}
-              />
-              {errors.budget_usd && (
-                <p className="text-xs text-destructive">{errors.budget_usd.message}</p>
-              )}
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="budget_spent_usd">Spent (USD)</Label>
-              <Input
-                id="budget_spent_usd"
-                type="number"
-                step="0.01"
-                min="0"
-                {...register("budget_spent_usd", { valueAsNumber: true })}
-              />
-              {errors.budget_spent_usd && (
-                <p className="text-xs text-destructive">
-                  {errors.budget_spent_usd.message}
-                </p>
-              )}
-            </div>
+          <div className="space-y-2">
+            <Label htmlFor="budget_rub">Budget (₽)</Label>
+            <Input
+              id="budget_rub"
+              type="number"
+              step="0.01"
+              min="0"
+              {...register("budget_rub", { valueAsNumber: true })}
+            />
+            {errors.budget_rub && (
+              <p className="text-xs text-destructive">{errors.budget_rub.message}</p>
+            )}
           </div>
 
           <div className="grid grid-cols-2 gap-4">

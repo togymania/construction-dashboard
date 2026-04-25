@@ -12,6 +12,7 @@ import {
   FileBarChart,
   Settings,
   HardHat,
+  Tags,
 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
@@ -26,6 +27,15 @@ const navigation = [
   { name: "Schedule", href: "/schedule", icon: Calendar },
   { name: "Risks", href: "/risks", icon: AlertTriangle },
   { name: "Reports", href: "/reports", icon: FileBarChart },
+];
+
+const adminNavigation = [
+  {
+    name: "Budget Categories",
+    href: "/settings/budget-categories",
+    icon: Tags,
+    requiredRoles: ["admin", "project_manager"] as const,
+  },
 ];
 
 function getInitials(fullName: string): string {
@@ -45,6 +55,10 @@ function formatRole(role: string): string {
 export function Sidebar({ className }: { className?: string }) {
   const pathname = usePathname();
   const { user } = useUser();
+
+  const visibleAdminLinks = adminNavigation.filter(
+    (item) => user && (item.requiredRoles as readonly string[]).includes(user.role)
+  );
 
   return (
     <aside
@@ -84,6 +98,35 @@ export function Sidebar({ className }: { className?: string }) {
             </Link>
           );
         })}
+
+        {visibleAdminLinks.length > 0 && (
+          <>
+            <div className="pt-4 pb-1">
+              <p className="px-3 text-xs font-semibold text-muted-foreground/70 uppercase tracking-wider">
+                Admin
+              </p>
+            </div>
+            {visibleAdminLinks.map((item) => {
+              const isActive = pathname.startsWith(item.href);
+              const Icon = item.icon;
+              return (
+                <Link
+                  key={item.name}
+                  href={item.href}
+                  className={cn(
+                    "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+                    isActive
+                      ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                      : "text-muted-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
+                  )}
+                >
+                  <Icon className="h-4 w-4" />
+                  {item.name}
+                </Link>
+              );
+            })}
+          </>
+        )}
       </nav>
 
       <Separator />
