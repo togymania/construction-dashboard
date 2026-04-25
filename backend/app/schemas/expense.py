@@ -74,9 +74,17 @@ class ImportRowError(BaseModel):
     reason: str
 
 
+class ImportRowWarning(BaseModel):
+    """A row that was skipped or modified with a warning during import."""
+
+    row: int
+    reason: str
+
+
 class ExpenseImportResult(BaseModel):
     """Summary returned after an Excel import."""
 
     imported_count: int
     skipped_count: int
     errors: list[ImportRowError]
+    warnings: list[ImportRowWarning] = []

@@ -22,7 +22,7 @@ httpx==0.28.1
 python-dotenv==1.0.1
 
 # Excel import
-openpyxl>=3.1.0
+openpyxl==3.1.5
 
 # Dev & Testing
 pytest==8.3.4

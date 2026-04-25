@@ -112,7 +112,7 @@ export function ExpenseFormDialog({
       };
 
       if (isEdit && expense) {
-        await api.expenses.update(expense.id, payload);
+        await api.expenses.update(projectId, expense.id, payload);
       } else {
         await api.expenses.createForProject(projectId, payload);
       }

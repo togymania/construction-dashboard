@@ -12,6 +12,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import CurrentUser, DBSession, require_roles
+from app.core.config import settings
 from app.models.budget import BudgetItem
 from app.models.budget_category import BudgetCategory
 from app.models.expense import Expense, ExpenseStatus
@@ -23,11 +24,10 @@ from app.schemas.expense import (
     ExpenseResponse,
     ExpenseUpdate,
     ImportRowError,
+    ImportRowWarning,
 )
 
 router = APIRouter(tags=["Expenses"])
-
-MAX_IMPORT_FILE_SIZE = 5 * 1024 * 1024  # 5 MB
 
 # ---- Column-name mapping (case-insensitive, supports TR & EN) ----
 
@@ -85,14 +85,15 @@ async def _ensure_project(db, project_id: int) -> Project:
     return project
 
 
-async def _load_expense(db, expense_id: int) -> Expense:
+async def _load_expense_scoped(db, project_id: int, expense_id: int) -> Expense:
+    """Load an expense and verify it belongs to the given project."""
     stmt = (
         select(Expense)
         .options(
             selectinload(Expense.category),
             selectinload(Expense.creator),
         )
-        .where(Expense.id == expense_id)
+        .where(Expense.id == expense_id, Expense.project_id == project_id)
     )
     result = await db.execute(stmt)
     expense = result.scalar_one_or_none()
@@ -125,21 +126,25 @@ def _expense_to_response(exp: Expense) -> ExpenseResponse:
     )
 
 
-async def _get_category_by_name(db, name: str) -> BudgetCategory | None:
-    """Look up a category by name (case-insensitive)."""
-    stmt = select(BudgetCategory).where(
-        func.lower(BudgetCategory.name) == name.strip().lower(),
-        BudgetCategory.is_active == True,  # noqa: E712
-    )
-    result = await db.execute(stmt)
-    return result.scalar_one_or_none()
-
-
 async def _get_category_map(db) -> dict[str, int]:
     """Return {lowercase_name: id} for all active categories."""
     stmt = select(BudgetCategory).where(BudgetCategory.is_active == True)  # noqa: E712
     rows = (await db.execute(stmt)).scalars().all()
     return {cat.name.lower(): cat.id for cat in rows}
+
+
+async def _get_existing_invoice_keys(db, project_id: int) -> set[tuple[str, str]]:
+    """Return {(vendor_lower, invoice_lower)} for existing expenses in this project.
+
+    Used to detect duplicate imports. Skips rows where vendor or invoice is NULL.
+    """
+    stmt = select(Expense.vendor, Expense.invoice_number).where(
+        Expense.project_id == project_id,
+        Expense.invoice_number.is_not(None),
+        Expense.vendor.is_not(None),
+    )
+    rows = (await db.execute(stmt)).all()
+    return {(v.lower(), inv.lower()) for v, inv in rows if v and inv}
 
 
 # ---- Endpoints ----
@@ -234,21 +239,22 @@ async def create_expense(
         await db.rollback()
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Constraint violation")
 
-    return _expense_to_response(await _load_expense(db, expense.id))
+    return _expense_to_response(await _load_expense_scoped(db, project_id, expense.id))
 
 
 @router.put(
-    "/expenses/{expense_id}",
+    "/projects/{project_id}/expenses/{expense_id}",
     response_model=ExpenseResponse,
     summary="Update an expense",
 )
 async def update_expense(
+    project_id: int,
     expense_id: int,
     payload: ExpenseUpdate,
     db: DBSession,
     user: User = Depends(require_roles(UserRole.ADMIN, UserRole.PROJECT_MANAGER)),
 ) -> ExpenseResponse:
-    expense = await _load_expense(db, expense_id)
+    expense = await _load_expense_scoped(db, project_id, expense_id)
 
     update_data = payload.model_dump(exclude_unset=True)
 
@@ -271,24 +277,21 @@ async def update_expense(
         await db.rollback()
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Constraint violation")
 
-    return _expense_to_response(await _load_expense(db, expense_id))
+    return _expense_to_response(await _load_expense_scoped(db, project_id, expense_id))
 
 
 @router.delete(
-    "/expenses/{expense_id}",
+    "/projects/{project_id}/expenses/{expense_id}",
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Delete an expense",
-    response_model=None,
 )
 async def delete_expense(
+    project_id: int,
     expense_id: int,
     db: DBSession,
     user: User = Depends(require_roles(UserRole.ADMIN, UserRole.PROJECT_MANAGER)),
 ):
-    expense = await db.get(Expense, expense_id)
-    if expense is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Expense not found")
-
+    expense = await _load_expense_scoped(db, project_id, expense_id)
     await db.delete(expense)
     await db.commit()
 
@@ -315,19 +318,20 @@ async def import_expenses_from_excel(
     if default_cat is None or not default_cat.is_active:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid default category")
 
-    # Validate file
-    if file.content_type not in (
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        "application/octet-stream",
-    ):
+    # Validate file extension (more reliable than content-type)
+    if not file.filename or not file.filename.lower().endswith(".xlsx"):
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
             "Only .xlsx files are accepted",
         )
 
+    max_bytes = settings.MAX_IMPORT_FILE_SIZE_MB * 1024 * 1024
     contents = await file.read()
-    if len(contents) > MAX_IMPORT_FILE_SIZE:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "File exceeds 5 MB limit")
+    if len(contents) > max_bytes:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"File exceeds {settings.MAX_IMPORT_FILE_SIZE_MB} MB limit",
+        )
 
     # Parse Excel
     try:
@@ -337,6 +341,7 @@ async def import_expenses_from_excel(
 
     ws = wb.active
     if ws is None:
+        wb.close()
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "No active sheet in workbook")
 
     rows = list(ws.iter_rows(values_only=True))
@@ -361,13 +366,18 @@ async def import_expenses_from_excel(
     # Pre-load category map for name-based lookup
     category_map = await _get_category_map(db)
 
+    # Pre-load existing (vendor, invoice_number) keys for duplicate detection
+    existing_keys = await _get_existing_invoice_keys(db, project_id)
+    seen_in_file: set[tuple[str, str]] = set()
+
     now = datetime.now(timezone.utc)
     imported = 0
     errors: list[ImportRowError] = []
+    warnings: list[ImportRowWarning] = []
 
     for row_idx, row in enumerate(rows[1:], start=2):
         try:
-            # Amount (required)
+            # ---- Amount (required) ----
             raw_amount = row[header_map["amount"]] if "amount" in header_map else None
             if raw_amount is None or str(raw_amount).strip() == "":
                 errors.append(ImportRowError(row=row_idx, reason="Missing amount"))
@@ -381,9 +391,9 @@ async def import_expenses_from_excel(
                 errors.append(ImportRowError(row=row_idx, reason=f"Amount must be positive: {raw_amount}"))
                 continue
 
-            # Expense date
+            # ---- Expense date ----
             raw_date = row[header_map["expense_date"]] if "expense_date" in header_map else None
-            expense_date: date
+            expense_date: date | None = None
             if raw_date is None or str(raw_date).strip() == "":
                 expense_date = date.today()
             elif isinstance(raw_date, datetime):
@@ -391,46 +401,67 @@ async def import_expenses_from_excel(
             elif isinstance(raw_date, date):
                 expense_date = raw_date
             else:
-                try:
-                    # Try common formats
-                    date_str = str(raw_date).strip()
-                    for fmt in ("%Y-%m-%d", "%d.%m.%Y", "%d/%m/%Y", "%m/%d/%Y"):
-                        try:
-                            expense_date = datetime.strptime(date_str, fmt).date()
-                            break
-                        except ValueError:
-                            continue
-                    else:
-                        errors.append(ImportRowError(row=row_idx, reason=f"Invalid date: {raw_date}"))
+                date_str = str(raw_date).strip()
+                for fmt in ("%Y-%m-%d", "%d.%m.%Y", "%d/%m/%Y", "%m/%d/%Y"):
+                    try:
+                        expense_date = datetime.strptime(date_str, fmt).date()
+                        break
+                    except ValueError:
                         continue
-                except Exception:
+                if expense_date is None:
                     errors.append(ImportRowError(row=row_idx, reason=f"Invalid date: {raw_date}"))
                     continue
 
-            # Vendor (optional)
+            # ---- Vendor (optional) ----
             raw_vendor = row[header_map["vendor"]] if "vendor" in header_map else None
             vendor = str(raw_vendor).strip()[:255] if raw_vendor else None
 
-            # Invoice number (optional)
+            # ---- Invoice number (optional) ----
             raw_inv = row[header_map["invoice_number"]] if "invoice_number" in header_map else None
             invoice_number = str(raw_inv).strip()[:100] if raw_inv else None
 
-            # Description (optional — fallback to vendor + invoice)
+            # ---- Duplicate detection (only if both vendor & invoice present) ----
+            if vendor and invoice_number:
+                key = (vendor.lower(), invoice_number.lower())
+                if key in existing_keys:
+                    warnings.append(ImportRowWarning(
+                        row=row_idx,
+                        reason=f"Skipped: duplicate of existing expense ({vendor} / {invoice_number})",
+                    ))
+                    continue
+                if key in seen_in_file:
+                    warnings.append(ImportRowWarning(
+                        row=row_idx,
+                        reason=f"Skipped: duplicate within file ({vendor} / {invoice_number})",
+                    ))
+                    continue
+                seen_in_file.add(key)
+
+            # ---- Description (optional — fallback to vendor + invoice) ----
             raw_desc = row[header_map["description"]] if "description" in header_map else None
             if raw_desc and str(raw_desc).strip():
                 description = str(raw_desc).strip()[:500]
             else:
                 parts = [p for p in [vendor, invoice_number] if p]
-                description = " — ".join(parts) if parts else f"Import row {row_idx}"
+                description = " — ".join(parts) if parts else "(no description)"
 
-            # Category (optional — use name lookup, fallback to default_category_id)
+            # ---- Category (optional — name lookup, fallback to default with warning) ----
             raw_cat = row[header_map["category"]] if "category" in header_map else None
             if raw_cat and str(raw_cat).strip():
-                cat_name_lower = str(raw_cat).strip().lower()
-                category_id = category_map.get(cat_name_lower, default_category_id)
+                cat_name_raw = str(raw_cat).strip()
+                cat_name_lower = cat_name_raw.lower()
+                if cat_name_lower in category_map:
+                    category_id = category_map[cat_name_lower]
+                else:
+                    category_id = default_category_id
+                    warnings.append(ImportRowWarning(
+                        row=row_idx,
+                        reason=f"Unknown category '{cat_name_raw}' — used default '{default_cat.name}'",
+                    ))
             else:
                 category_id = default_category_id
 
+            # ---- Build expense and flush per-row (atomicity) ----
             expense = Expense(
                 project_id=project_id,
                 category_id=category_id,
@@ -444,24 +475,34 @@ async def import_expenses_from_excel(
                 created_by=user.id,
             )
             db.add(expense)
+            try:
+                await db.flush()
+            except IntegrityError as ie:
+                await db.rollback()
+                errors.append(ImportRowError(row=row_idx, reason=f"DB error: {str(ie.orig)[:200]}"))
+                continue
+
             imported += 1
 
         except Exception as exc:
             errors.append(ImportRowError(row=row_idx, reason=str(exc)))
 
-    # Bulk commit
+    # Final commit (rolls up all flushed rows)
     if imported > 0:
         try:
             await db.commit()
         except IntegrityError:
             await db.rollback()
-            raise HTTPException(
-                status.HTTP_400_BAD_REQUEST,
-                "Database error during bulk insert — no rows were imported",
+            return ExpenseImportResult(
+                imported_count=0,
+                skipped_count=len(errors) + len(warnings) + imported,
+                errors=errors + [ImportRowError(row=0, reason="Final commit failed — no rows imported")],
+                warnings=warnings,
             )
 
     return ExpenseImportResult(
         imported_count=imported,
-        skipped_count=len(errors),
+        skipped_count=len(errors) + len(warnings),
         errors=errors,
+        warnings=warnings,
     )

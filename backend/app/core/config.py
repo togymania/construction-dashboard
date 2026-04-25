@@ -28,6 +28,9 @@ class Settings(BaseSettings):
     POSTGRES_HOST: str = "db"
     POSTGRES_PORT: int = 5432
 
+    # Limits
+    MAX_IMPORT_FILE_SIZE_MB: int = 5
+
     @property
     def DATABASE_URL(self) -> str:
         """Async PostgreSQL connection string for SQLAlchemy."""

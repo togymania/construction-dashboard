@@ -238,7 +238,7 @@ export default function ProjectBudgetPage() {
     if (!deletingExpense) return;
     setIsDeletingExpense(true);
     try {
-      await api.expenses.delete(deletingExpense.id);
+      await api.expenses.delete(projectId, deletingExpense.id);
       setDeletingExpense(null);
       await loadAll();
     } catch (err) {

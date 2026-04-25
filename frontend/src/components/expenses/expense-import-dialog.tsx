@@ -1,7 +1,7 @@
 "use client";
 
-import { useRef, useState } from "react";
-import { FileSpreadsheet, Upload, CheckCircle2, AlertTriangle, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { FileSpreadsheet, Upload, CheckCircle2, AlertTriangle, Info, X } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -31,6 +31,10 @@ interface Props {
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5 MB
 
+function isValidExcel(name: string): boolean {
+  return name.toLowerCase().endsWith(".xlsx");
+}
+
 export function ExpenseImportDialog({
   open,
   onOpenChange,
@@ -45,9 +49,17 @@ export function ExpenseImportDialog({
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<ExpenseImportResult | null>(null);
 
+  // Set default category when dialog opens
+  useEffect(() => {
+    if (open && !categoryId && categories.length > 0) {
+      const firstActive = categories.find((c) => c.is_active);
+      if (firstActive) setCategoryId(String(firstActive.id));
+    }
+  }, [open, categories, categoryId]);
+
   function reset() {
     setFile(null);
-    setCategoryId(categories.length > 0 ? String(categories[0].id) : "");
+    setCategoryId("");
     setError(null);
     setResult(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
@@ -58,41 +70,32 @@ export function ExpenseImportDialog({
     onOpenChange(nextOpen);
   }
 
-  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const selected = e.target.files?.[0];
-    if (!selected) return;
-
-    if (
-      !selected.name.endsWith(".xlsx") &&
-      !selected.name.endsWith(".xls")
-    ) {
+  function validateAndSetFile(candidate: File) {
+    if (!isValidExcel(candidate.name)) {
       setError("Only .xlsx files are allowed");
       setFile(null);
       return;
     }
-    if (selected.size > MAX_FILE_SIZE) {
+    if (candidate.size > MAX_FILE_SIZE) {
       setError("File size exceeds 5 MB");
       setFile(null);
       return;
     }
-    setFile(selected);
+    setFile(candidate);
     setError(null);
+  }
+
+  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const selected = e.target.files?.[0];
+    if (!selected) return;
+    validateAndSetFile(selected);
   }
 
   function handleDrop(e: React.DragEvent) {
     e.preventDefault();
     const dropped = e.dataTransfer.files?.[0];
     if (!dropped) return;
-    if (!dropped.name.endsWith(".xlsx")) {
-      setError("Only .xlsx files are allowed");
-      return;
-    }
-    if (dropped.size > MAX_FILE_SIZE) {
-      setError("File size exceeds 5 MB");
-      return;
-    }
-    setFile(dropped);
-    setError(null);
+    validateAndSetFile(dropped);
   }
 
   async function handleImport() {
@@ -124,6 +127,13 @@ export function ExpenseImportDialog({
     }
   }
 
+  function handleImportAnother() {
+    setFile(null);
+    setResult(null);
+    setError(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  }
+
   const activeCategories = categories.filter((c) => c.is_active);
 
   // Result screen
@@ -150,33 +160,55 @@ export function ExpenseImportDialog({
               </div>
             )}
 
-            {result.skipped_count > 0 && (
-              <div className="rounded-lg border border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/30 p-4">
+            {result.errors.length > 0 && (
+              <div className="rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/30 p-4">
                 <div className="flex items-center gap-3">
-                  <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-400 shrink-0" />
-                  <p className="font-medium text-amber-800 dark:text-amber-300">
-                    {result.skipped_count} row{result.skipped_count > 1 ? "s" : ""} skipped
+                  <AlertTriangle className="h-5 w-5 text-red-600 dark:text-red-400 shrink-0" />
+                  <p className="font-medium text-red-800 dark:text-red-300">
+                    {result.errors.length} error{result.errors.length > 1 ? "s" : ""}
                   </p>
                 </div>
-                {result.errors.length > 0 && (
-                  <div className="mt-3 max-h-40 overflow-y-auto text-xs space-y-1 text-amber-700 dark:text-amber-400">
-                    {result.errors.map((err, i) => (
-                      <p key={i}>
-                        <span className="font-medium">Row {err.row}:</span>{" "}
-                        {err.reason}
-                      </p>
-                    ))}
-                  </div>
-                )}
+                <div className="mt-3 max-h-40 overflow-y-auto text-xs space-y-1 text-red-700 dark:text-red-400">
+                  {result.errors.map((err, i) => (
+                    <p key={i}>
+                      <span className="font-medium">Row {err.row}:</span>{" "}
+                      {err.reason}
+                    </p>
+                  ))}
+                </div>
               </div>
             )}
 
-            {result.imported_count === 0 && result.skipped_count === 0 && (
-              <p className="text-sm text-muted-foreground">No data was processed.</p>
+            {result.warnings.length > 0 && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/30 p-4">
+                <div className="flex items-center gap-3">
+                  <Info className="h-5 w-5 text-amber-600 dark:text-amber-400 shrink-0" />
+                  <p className="font-medium text-amber-800 dark:text-amber-300">
+                    {result.warnings.length} warning{result.warnings.length > 1 ? "s" : ""}
+                  </p>
+                </div>
+                <div className="mt-3 max-h-40 overflow-y-auto text-xs space-y-1 text-amber-700 dark:text-amber-400">
+                  {result.warnings.map((w, i) => (
+                    <p key={i}>
+                      <span className="font-medium">Row {w.row}:</span>{" "}
+                      {w.reason}
+                    </p>
+                  ))}
+                </div>
+              </div>
             )}
+
+            {result.imported_count === 0 &&
+              result.errors.length === 0 &&
+              result.warnings.length === 0 && (
+                <p className="text-sm text-muted-foreground">No data was processed.</p>
+              )}
           </div>
 
-          <DialogFooter>
+          <DialogFooter className="flex-col sm:flex-row gap-2">
+            <Button variant="outline" onClick={handleImportAnother}>
+              Import another file
+            </Button>
             <Button onClick={() => handleOpenChange(false)}>Done</Button>
           </DialogFooter>
         </DialogContent>
@@ -241,7 +273,7 @@ export function ExpenseImportDialog({
             <input
               ref={fileInputRef}
               type="file"
-              accept=".xlsx,.xls"
+              accept=".xlsx"
               className="hidden"
               onChange={handleFileChange}
             />

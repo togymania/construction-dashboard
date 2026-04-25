@@ -129,9 +129,15 @@ export interface ImportRowError {
   reason: string;
 }
 
+export interface ImportRowWarning {
+  row: number;
+  reason: string;
+}
+
 export interface ExpenseImportResult {
   imported_count: number;
   skipped_count: number;
   errors: ImportRowError[];
+  warnings: ImportRowWarning[];
 }
 
