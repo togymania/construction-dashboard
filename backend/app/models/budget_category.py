@@ -1,7 +1,7 @@
 ﻿"""BudgetCategory ORM model (now a table, no longer an enum)."""
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Integer, String, func
+from sqlalchemy import Boolean, DateTime, Index, Integer, String, func, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -13,7 +13,7 @@ class BudgetCategory(Base):
     __tablename__ = "budget_categories"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    name: Mapped[str] = mapped_column(String(100), nullable=False, unique=True)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
     slug: Mapped[str] = mapped_column(String(100), nullable=False, unique=True, index=True)
     display_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     is_system: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
@@ -26,6 +26,15 @@ class BudgetCategory(Base):
         server_default=func.now(),
         onupdate=func.now(),
         nullable=False,
+    )
+
+    __table_args__ = (
+        # Case-insensitive UNIQUE on name (matches migration cd00e1ca86c6)
+        Index(
+            "ix_budget_categories_name_lower",
+            text("lower(name)"),
+            unique=True,
+        ),
     )
 
     def __repr__(self) -> str:
