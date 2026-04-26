@@ -216,7 +216,7 @@ export default function ProjectBudgetPage() {
     if (!deletingItem) return;
     setIsDeleting(true);
     try {
-      await api.budgetItems.delete(deletingItem.id);
+      await api.budgetItems.delete(projectId, deletingItem.id);
       setDeletingItem(null);
       await loadAll();
     } catch (err) {

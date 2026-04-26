@@ -132,7 +132,7 @@ export function BudgetItemFormDialog({
 
     try {
       if (item) {
-        await api.budgetItems.update(item.id, payload);
+        await api.budgetItems.update(projectId, item.id, payload);
       } else {
         await api.budgetItems.createForProject(projectId, payload);
       }

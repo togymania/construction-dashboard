@@ -148,13 +148,13 @@ export const api = {
         method: "POST",
         body: JSON.stringify(data),
       }),
-    update: (id: number, data: BudgetItemUpdatePayload) =>
-      request<BudgetItem>("/budget-items/" + id, {
+    update: (projectId: number, id: number, data: BudgetItemUpdatePayload) =>
+      request<BudgetItem>("/projects/" + projectId + "/budget-items/" + id, {
         method: "PUT",
         body: JSON.stringify(data),
       }),
-    delete: (id: number) =>
-      request<void>("/budget-items/" + id, {
+    delete: (projectId: number, id: number) =>
+      request<void>("/projects/" + projectId + "/budget-items/" + id, {
         method: "DELETE",
       }),
     summaryForProject: (projectId: number) =>

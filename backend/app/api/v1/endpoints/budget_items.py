@@ -139,18 +139,20 @@ async def create_budget_item(
 
 
 @router.put(
-    "/budget-items/{item_id}",
+    "/projects/{project_id}/budget-items/{item_id}",
     response_model=BudgetItemResponse,
-    summary="Update a budget item",
+    summary="Update a budget item (scoped under project)",
 )
 async def update_budget_item(
+    project_id: int,
     item_id: int,
     payload: BudgetItemUpdate,
     db: DBSession,
     user: User = Depends(require_roles(UserRole.ADMIN, UserRole.PROJECT_MANAGER)),
 ) -> BudgetItem:
+    await _ensure_project_exists(db, project_id)
     item = await _get_budget_item_with_category(db, item_id)
-    if item is None:
+    if item is None or item.project_id != project_id:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Budget item not found",
@@ -187,17 +189,19 @@ async def update_budget_item(
 
 
 @router.delete(
-    "/budget-items/{item_id}",
+    "/projects/{project_id}/budget-items/{item_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    summary="Delete a budget item",
+    summary="Delete a budget item (scoped under project)",
 )
 async def delete_budget_item(
+    project_id: int,
     item_id: int,
     db: DBSession,
     user: User = Depends(require_roles(UserRole.ADMIN, UserRole.PROJECT_MANAGER)),
 ) -> None:
+    await _ensure_project_exists(db, project_id)
     item = await db.get(BudgetItem, item_id)
-    if item is None:
+    if item is None or item.project_id != project_id:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Budget item not found",
