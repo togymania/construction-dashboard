@@ -4,6 +4,7 @@ import { Fragment, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
   Plus,
+  Upload,
   MoreHorizontal,
   Wallet,
   ArrowLeft,
@@ -90,6 +91,7 @@ import type {
 } from "@/types/budget";
 import { useUser } from "@/components/providers/user-provider";
 import { BudgetItemFormDialog } from "@/components/budget-items/budget-item-form-dialog";
+import { BudgetItemImportDialog } from "@/components/budget-items/budget-item-import-dialog";
 import { ExpenseFormDialog } from "@/components/expenses/expense-form-dialog";
 import { ExpenseImportDialog } from "@/components/expenses/expense-import-dialog";
 
@@ -119,6 +121,7 @@ export default function ProjectBudgetPage() {
 
   // Budget Item dialogs
   const [formOpen, setFormOpen] = useState(false);
+  const [itemImportOpen, setItemImportOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<BudgetItem | null>(null);
   const [deletingItem, setDeletingItem] = useState<BudgetItem | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -483,10 +486,20 @@ export default function ProjectBudgetPage() {
             <CardHeader className="pb-4 flex flex-row items-center justify-between">
               <CardTitle className="text-base font-medium">Budget Items</CardTitle>
               {canManage && (
-                <Button size="sm" onClick={handleCreate}>
-                  <Plus className="mr-2 h-4 w-4" />
-                  Add Budget Item
-                </Button>
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setItemImportOpen(true)}
+                  >
+                    <Upload className="mr-2 h-4 w-4" />
+                    Import
+                  </Button>
+                  <Button size="sm" onClick={handleCreate}>
+                    <Plus className="mr-2 h-4 w-4" />
+                    Add Budget Item
+                  </Button>
+                </div>
               )}
             </CardHeader>
             <CardContent className="p-0">
@@ -739,6 +752,14 @@ export default function ProjectBudgetPage() {
         onOpenChange={setFormOpen}
         projectId={projectId}
         item={editingItem}
+        onSuccess={loadAll}
+      />
+
+      {/* Budget Item Excel Import */}
+      <BudgetItemImportDialog
+        open={itemImportOpen}
+        onOpenChange={setItemImportOpen}
+        projectId={projectId}
         onSuccess={loadAll}
       />
 

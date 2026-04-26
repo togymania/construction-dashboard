@@ -64,6 +64,8 @@ import type {
   ExpensePayload,
   ExpenseUpdatePayload,
   ExpenseImportResult,
+  BudgetImportResult,
+  BudgetImportMode,
 } from "@/types/budget";
 
 interface ProjectPayload {
@@ -157,6 +159,19 @@ export const api = {
       }),
     summaryForProject: (projectId: number) =>
       request<BudgetSummary>("/projects/" + projectId + "/budget-summary"),
+    importExcel: (
+      projectId: number,
+      file: File,
+      overwriteMode: BudgetImportMode = "append",
+    ) => {
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("overwrite_mode", overwriteMode);
+      return request<BudgetImportResult>(
+        "/projects/" + projectId + "/budget-items/import",
+        { method: "POST", body: fd },
+      );
+    },
   },
   expenses: {
     listForProject: (

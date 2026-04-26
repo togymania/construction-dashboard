@@ -20,6 +20,12 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { api } from "@/lib/api-client";
+import {
+  CategoryCombobox,
+  comboboxValueToPayload,
+  comboboxValueFromExisting,
+  type CategoryComboboxValue,
+} from "@/components/category-combobox";
 import type {
   BudgetCategory,
   BudgetItem,
@@ -48,7 +54,7 @@ export function ExpenseFormDialog({
 }: Props) {
   const isEdit = expense !== null;
 
-  const [categoryId, setCategoryId] = useState("");
+  const [categoryValue, setCategoryValue] = useState<CategoryComboboxValue>(null);
   const [description, setDescription] = useState("");
   const [amount, setAmount] = useState("");
   const [expenseDate, setExpenseDate] = useState("");
@@ -62,7 +68,10 @@ export function ExpenseFormDialog({
   useEffect(() => {
     if (!open) return;
     if (expense) {
-      setCategoryId(String(expense.category_id));
+      setCategoryValue(comboboxValueFromExisting({
+        id: expense.category_id,
+        name: expense.category.name,
+      }));
       setDescription(expense.description);
       setAmount(expense.amount);
       setExpenseDate(expense.expense_date);
@@ -73,7 +82,7 @@ export function ExpenseFormDialog({
         expense.budget_item_id ? String(expense.budget_item_id) : ""
       );
     } else {
-      setCategoryId(categories.length > 0 ? String(categories[0].id) : "");
+      setCategoryValue(null);
       setDescription("");
       setAmount("");
       setExpenseDate(new Date().toISOString().slice(0, 10));
@@ -87,7 +96,7 @@ export function ExpenseFormDialog({
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!categoryId || !description.trim() || !amount || !expenseDate) {
+    if (!categoryValue || !description.trim() || !amount || !expenseDate) {
       setError("Please fill in all required fields");
       return;
     }
@@ -100,8 +109,10 @@ export function ExpenseFormDialog({
     setSaving(true);
     setError(null);
     try {
+      const cat = comboboxValueToPayload(categoryValue);
       const payload: ExpensePayload = {
-        category_id: parseInt(categoryId, 10),
+        category_id: cat.category_id,
+        category_name_new: cat.category_name_new,
         description: description.trim(),
         amount: parsedAmount,
         expense_date: expenseDate,
@@ -142,18 +153,12 @@ export function ExpenseFormDialog({
             <Label htmlFor="exp-category">
               Category <span className="text-destructive">*</span>
             </Label>
-            <Select value={categoryId} onValueChange={setCategoryId}>
-              <SelectTrigger id="exp-category">
-                <SelectValue placeholder="Select category" />
-              </SelectTrigger>
-              <SelectContent>
-                {activeCategories.map((cat) => (
-                  <SelectItem key={cat.id} value={String(cat.id)}>
-                    {cat.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <CategoryCombobox
+              categories={categories}
+              value={categoryValue}
+              onChange={setCategoryValue}
+              placeholder="Select or create category..."
+            />
           </div>
 
           {/* Description */}

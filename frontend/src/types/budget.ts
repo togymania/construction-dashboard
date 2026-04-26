@@ -45,19 +45,7 @@ export interface BudgetItem {
   updated_at: string;
 }
 
-export interface BudgetItemPayload {
-  category_id: number;
-  description: string;
-  planned_amount: number;
-  notes?: string | null;
-}
 
-export interface BudgetItemUpdatePayload {
-  category_id?: number;
-  description?: string;
-  planned_amount?: number;
-  notes?: string | null;
-}
 
 // ---------- Budget Summary ----------
 
@@ -103,7 +91,8 @@ export interface Expense {
 }
 
 export interface ExpensePayload {
-  category_id: number;
+  category_id: number | null;
+  category_name_new: string | null;
   budget_item_id?: number | null;
   description: string;
   amount: number;
@@ -114,13 +103,30 @@ export interface ExpensePayload {
 }
 
 export interface ExpenseUpdatePayload {
-  category_id?: number;
+  category_id?: number | null;
+  category_name_new?: string | null;
   budget_item_id?: number | null;
   description?: string;
   amount?: number;
   expense_date?: string;
   vendor?: string | null;
   invoice_number?: string | null;
+  notes?: string | null;
+}
+
+export interface BudgetItemPayload {
+  category_id: number | null;
+  category_name_new: string | null;
+  description: string;
+  planned_amount: number;
+  notes?: string | null;
+}
+
+export interface BudgetItemUpdatePayload {
+  category_id?: number | null;
+  category_name_new?: string | null;
+  description?: string;
+  planned_amount?: number;
   notes?: string | null;
 }
 
@@ -140,4 +146,26 @@ export interface ExpenseImportResult {
   errors: ImportRowError[];
   warnings: ImportRowWarning[];
 }
+
+// ---------- Budget Item Excel Import ----------
+
+export interface BudgetImportRowError {
+  row: number;
+  reason: string;
+}
+
+export interface BudgetImportRowWarning {
+  row: number;
+  reason: string;
+}
+
+export interface BudgetImportResult {
+  imported_count: number;
+  skipped_count: number;
+  deleted_count: number;
+  errors: BudgetImportRowError[];
+  warnings: BudgetImportRowWarning[];
+}
+
+export type BudgetImportMode = "append" | "replace";
 

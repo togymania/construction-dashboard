@@ -13,6 +13,7 @@ from sqlalchemy.orm import selectinload
 
 from app.api.deps import CurrentUser, DBSession, require_roles
 from app.core.config import settings
+from app.services.category_service import get_or_create_category, resolve_category
 from app.models.budget import BudgetItem
 from app.models.budget_category import BudgetCategory
 from app.models.expense import Expense, ExpenseStatus
@@ -206,10 +207,15 @@ async def create_expense(
 ) -> ExpenseResponse:
     await _ensure_project(db, project_id)
 
-    # Validate category
-    cat = await db.get(BudgetCategory, payload.category_id)
-    if cat is None or not cat.is_active:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid category")
+    # Resolve category: existing id OR free-text auto-create (mutually exclusive)
+    try:
+        category = await resolve_category(
+            db,
+            category_id=payload.category_id,
+            category_name_new=payload.category_name_new,
+        )
+    except ValueError as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
 
     # Validate budget item if provided
     if payload.budget_item_id is not None:
@@ -220,7 +226,7 @@ async def create_expense(
     now = datetime.now(timezone.utc)
     expense = Expense(
         project_id=project_id,
-        category_id=payload.category_id,
+        category_id=category.id,
         budget_item_id=payload.budget_item_id,
         description=payload.description,
         amount=payload.amount,
@@ -258,10 +264,18 @@ async def update_expense(
 
     update_data = payload.model_dump(exclude_unset=True)
 
-    if "category_id" in update_data:
-        cat = await db.get(BudgetCategory, update_data["category_id"])
-        if cat is None or not cat.is_active:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid category")
+    # Category change: existing id OR free-text auto-create (mutually exclusive)
+    if "category_id" in update_data or "category_name_new" in update_data:
+        try:
+            category = await resolve_category(
+                db,
+                category_id=update_data.get("category_id"),
+                category_name_new=update_data.get("category_name_new"),
+            )
+        except ValueError as e:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
+        update_data["category_id"] = category.id
+        update_data.pop("category_name_new", None)
 
     if "budget_item_id" in update_data and update_data["budget_item_id"] is not None:
         bi = await db.get(BudgetItem, update_data["budget_item_id"])
@@ -363,8 +377,14 @@ async def import_expenses_from_excel(
             f"Could not find an 'amount' column. Headers found: {[str(h) for h in header_row if h]}",
         )
 
-    # Pre-load category map for name-based lookup
-    category_map = await _get_category_map(db)
+    # Pre-load known category IDs (used to detect newly auto-created
+    # categories during this import, so each new one is announced once
+    # in the warnings panel rather than per-row).
+    known_category_ids: set[int] = {
+        cat_id for cat_id in (await db.execute(
+            select(BudgetCategory.id)
+        )).scalars().all()
+    }
 
     # Pre-load existing (vendor, invoice_number) keys for duplicate detection
     existing_keys = await _get_existing_invoice_keys(db, project_id)
@@ -445,19 +465,23 @@ async def import_expenses_from_excel(
                 parts = [p for p in [vendor, invoice_number] if p]
                 description = " — ".join(parts) if parts else "(no description)"
 
-            # ---- Category (optional — name lookup, fallback to default with warning) ----
+            # ---- Category (optional — auto-create if name not found) ----
             raw_cat = row[header_map["category"]] if "category" in header_map else None
             if raw_cat and str(raw_cat).strip():
                 cat_name_raw = str(raw_cat).strip()
-                cat_name_lower = cat_name_raw.lower()
-                if cat_name_lower in category_map:
-                    category_id = category_map[cat_name_lower]
-                else:
+                try:
+                    cat = await get_or_create_category(db, cat_name_raw)
+                except ValueError:
+                    # Empty after normalisation -> fall back to default
                     category_id = default_category_id
-                    warnings.append(ImportRowWarning(
-                        row=row_idx,
-                        reason=f"Unknown category '{cat_name_raw}' — used default '{default_cat.name}'",
-                    ))
+                else:
+                    category_id = cat.id
+                    if cat.id not in known_category_ids:
+                        warnings.append(ImportRowWarning(
+                            row=row_idx,
+                            reason=f"Auto-created new category '{cat.name}'",
+                        ))
+                        known_category_ids.add(cat.id)
             else:
                 category_id = default_category_id
 
