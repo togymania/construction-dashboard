@@ -1,84 +1,107 @@
-# 📋 Sprint Log — 15 Gunluk Agile Sprint
+# Sprint Log - ConstructHub
 
-## 🎯 Proje Hedefi
+Living, day-by-day log. Forward-looking master plan is in
+docs/plans/sprint_roadmap.md. Day-specific plans live under
+docs/plans/dayN_*_plan.md.
 
-Milyar dolarlik buyuk olcekli insaat projelerinde yoneticilerin kullanacagi, web tabanli, SaaS mimarisinde bir **Enterprise Construction Management Dashboard** gelistirmek.
+## Day 1 - Foundation
 
----
+- Repo bootstrapped, Docker compose, env scaffolding
+- PostgreSQL on host port 5433
+- Backend Docker image pre-installs alembic, asyncpg, passlib
+- Frontend uses --no-turbopack inside Docker
 
-## ✅ Gun 1: Kurulum ve Temel Mimari
+## Day 2 - Frontend layout
 
-**Tarih:** _YYYY-MM-DD_
-**Durum:** ✅ Tamamlandi
+- Shadcn UI primitives: Button, Card, Input, Table, Dialog, Sheet
+- Dashboard shell: Sidebar + Header + breadcrumb
+- Theme toggle (next-themes)
+- Backend /api/v1/ router skeleton
+- Mock /api/v1/projects endpoint
 
-### Yapilanlar
+## Day 3 - Auth (JWT)
 
-- [x] Monorepo klasor yapisi olusturuldu (`frontend/`, `backend/`, `docs/`, `scripts/`)
-- [x] FastAPI boilerplate (`app/main.py`, config, health check endpoint)
-- [x] Next.js (App Router + TypeScript + Tailwind) hazirligi
-- [x] PostgreSQL 16 Docker servisi
-- [x] `docker-compose.yml` — tek komutla 3 servisi ayaga kaldirma
-- [x] `.gitignore` (Node + Python + OS + Docker + AI artifacts)
-- [x] Otomatik setup scriptleri (`setup.sh` + `setup.ps1`)
-- [x] Olceklenebilir servis yapisi (`services/ai_parser`, `services/report_generator`, `services/notifications`)
+- User + Role models, Alembic migration
+- JWT access + refresh tokens
+- Login/Register pages
+- UserProvider context, protected routes
 
-### Mimari Kararlar (ADR)
+## Day 4 - Project CRUD
 
-1. **Monorepo** secildi — tip paylasimi ve CI/CD pratigi icin.
-2. **FastAPI** (Django/Flask yerine) — async-first + ileride AI entegrasyonu icin.
-3. **App Router** (Pages Router yerine) — server components ve modern Next.js paradigmasi.
-4. **Shadcn UI** (MUI/Chakra yerine) — kod ownership + Tailwind entegrasyonu.
-5. **PostgreSQL** (MongoDB yerine) — iliskisel veri modeli (projeler, butce kalemleri, WBS) icin.
+- Project model + schemas + endpoints
+- /projects list page + /projects/[id] detail
+- ProjectFormDialog (create + edit)
+- Single seeded project: Istanbul Havalimani Terminal B (42.75B RUB)
 
-### Onemli Notlar
+## Day 5 - Budget tracking
 
-- PostgreSQL host portu `5433` olarak ayarlandi (local PostgreSQL ile cakismamasi icin).
-- Backend Docker image'inda `alembic`, `asyncpg`, `passlib` gibi bagimliliklar onceden yuklendi — ileriki gunlerde image rebuild gereksiz olsun diye.
-- Frontend icin `--no-turbopack` secildi — Docker volume mount'larinda Turbopack bazi sorunlar yasayabiliyor.
+- BudgetCategory enum, BudgetItem model
+- Budget summary endpoint
+- /projects/[id]/budget page with Pie + Bar charts
+- BudgetItemFormDialog
+- Sidebar admin section
 
----
+## Day 6 - Expense module + Excel import
 
-## ⏳ Gun 2: Frontend Layout + Shadcn UI + API v1 Router
+- Expense model + endpoints
+- ExpenseFormDialog
+- Excel bulk import with category fuzzy matching
+- Idempotent results
 
-**Durum:** 🔜 Planlanan
+## Day 7 - Dynamic categories + budget Excel import
 
-### Planlanan cikti
+- Promoted budget categories from enum to a real table
+- Admin CRUD at /settings/budget-categories
+- Budget items got Excel import (append + replace modes)
+- Stale demo projects pruned to 1 production project
 
-- [ ] Shadcn component'lar eklenecek (Button, Card, Input, Table, Dialog, Sheet)
-- [ ] Dashboard layout: Sidebar + Header + Breadcrumb
-- [ ] Theme toggle (light/dark)
-- [ ] Backend'de `/api/v1/` router yapisi
-- [ ] Ornek mock endpoint: `/api/v1/projects`
+## Day 8 - Subcontractor module (full stack)
 
----
+Backend (commit 1e0c532):
+- 3 models: Subcontractor, SubcontractorContract, SubcontractorPayment
+- 16 endpoints incl. cross-cut /projects/{id}/subcontractor-contracts
+- Pydantic schemas with validators
+- Seed: 4 subcontractors, 3 contracts, 8 payments (2.7B RUB total)
 
-## ⏳ Gun 3: Auth (JWT) + Kullanici Yonetimi
+Frontend (commit 1638c62):
+- TS types (3 enums + 12 interfaces)
+- api.subcontractors namespace
+- Pages: list, detail, contract detail
+- 3 form dialogs: subcontractor, contract, payment
+- KpiCharts component (4 Recharts widgets)
+- Project budget page extended with 3rd tab Subcontractors
+- Sidebar nav: Subcontractors
+- Bonus: smart breadcrumb fix in header.tsx
 
-**Durum:** 🔜 Planlanan
+Lessons:
+- FastAPI 0.115: omit return annotation on 204 endpoints
+- PowerShell heredoc fragility: use python write_bytes helper
+- PowerShell Select-String -SimpleMatch with pipes: use regex (default)
+- Indentation matching: view file first, never guess
 
-### Planlanan cikti
+## Theme-pass (between Day 8 and Day 9, commit 689e5f4)
 
-- [ ] Database modelleri (User, Role)
-- [ ] Alembic migration
-- [ ] JWT tabanli auth (access + refresh token)
-- [ ] Login/Register sayfalari
-- [ ] Frontend'de auth context + protected routes
+Visual-only sprint, no feature changes.
 
----
+- OKLCH palette unified at hue 260, indigo/cyan/emerald accent triad
+- Mesh gradient overlay (3 blobs, blurred, fixed) + SVG noise texture
+- Card glassmorphism (bg/70 + backdrop-blur-xl + rounded-2xl + lift)
+- Inter (body+headings) + JetBrains Mono replaced Geist family
+- Sidebar 3px neon left bar + indigo glow on active item
+- Status pulse dots, header glass styling
+- Buttons: gradient primary + neon glow; outline glass
+- Inputs: glass bg + indigo focus ring
+- Pie -> Donut conversion in 3 charts with smart labels
+- Bonus fix: Radix Select empty-string value bug in expense-form-dialog
 
-## ⏳ Gun 4-15
+Lessons:
+- Tailwind v4 has CSS-first config in @theme inline (no JS config file)
+- Next.js fonts swap via HMR (dev restart usually unnecessary)
+- Radix Select.Item: never empty-string value, use sentinel like _none
 
-Detaylandirilacak modul planlari:
+## Upcoming
 
-- **Gun 4:** Project CRUD (backend + frontend)
-- **Gun 5:** Budget Tracking modulu
-- **Gun 6:** Schedule / Gantt chart
-- **Gun 7:** Risk Register
-- **Gun 8:** Document Management (file upload)
-- **Gun 9:** AI Parser (PDF/sozlesme analizi)
-- **Gun 10:** Real-time notifications (WebSocket)
-- **Gun 11:** Reporting & PDF/Excel export
-- **Gun 12:** Role-based access control (RBAC)
-- **Gun 13:** Dashboard analytics & KPI widget'lari
-- **Gun 14:** Testing (unit + e2e with Playwright)
-- **Gun 15:** Production deployment & CI/CD
+See docs/plans/sprint_roadmap.md.
+
+Next session: Day 10 - Workforce + polish + sidebar fix.
+Detailed plan: docs/plans/day10_workforce_polish_plan.md.
