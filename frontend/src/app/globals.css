@@ -7,9 +7,9 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-sans);
-  --font-mono: var(--font-geist-mono);
-  --font-heading: var(--font-sans);
+  --font-sans: var(--font-inter);
+  --font-mono: var(--font-mono);
+  --font-heading: var(--font-inter);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -49,72 +49,74 @@
 }
 
 :root {
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
+  /* Premium light theme - subtle indigo undertone for cohesion with dark */
+  --background: oklch(0.99 0.005 260);
+  --foreground: oklch(0.18 0.025 260);
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
+  --card-foreground: oklch(0.18 0.025 260);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
+  --popover-foreground: oklch(0.18 0.025 260);
+  --primary: oklch(0.55 0.22 270);
+  --primary-foreground: oklch(0.99 0.005 260);
+  --secondary: oklch(0.96 0.01 260);
+  --secondary-foreground: oklch(0.30 0.05 270);
+  --muted: oklch(0.96 0.01 260);
+  --muted-foreground: oklch(0.50 0.02 260);
+  --accent: oklch(0.96 0.04 200);
+  --accent-foreground: oklch(0.30 0.05 270);
+  --destructive: oklch(0.60 0.22 25);
+  --border: oklch(0.90 0.01 260);
+  --input: oklch(0.92 0.01 260);
+  --ring: oklch(0.55 0.22 270);
+  --chart-1: oklch(0.55 0.22 270);
+  --chart-2: oklch(0.65 0.18 162);
+  --chart-3: oklch(0.70 0.15 200);
+  --chart-4: oklch(0.75 0.18 65);
+  --chart-5: oklch(0.65 0.22 25);
   --radius: 0.625rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  --sidebar: oklch(0.97 0.01 260);
+  --sidebar-foreground: oklch(0.30 0.025 260);
+  --sidebar-primary: oklch(0.55 0.22 270);
+  --sidebar-primary-foreground: oklch(0.99 0.005 260);
+  --sidebar-accent: oklch(0.93 0.02 260);
+  --sidebar-accent-foreground: oklch(0.30 0.05 270);
+  --sidebar-border: oklch(0.90 0.01 260);
+  --sidebar-ring: oklch(0.55 0.22 270);
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  /* Premium dark theme - deep midnight blue with cohesive hue at 260 */
+  --background: oklch(0.155 0.025 260);
+  --foreground: oklch(0.95 0.01 260);
+  --card: oklch(0.205 0.030 260);
+  --card-foreground: oklch(0.95 0.01 260);
+  --popover: oklch(0.220 0.030 260);
+  --popover-foreground: oklch(0.95 0.01 260);
+  --primary: oklch(0.65 0.20 270);
+  --primary-foreground: oklch(0.99 0.005 260);
+  --secondary: oklch(0.27 0.025 260);
+  --secondary-foreground: oklch(0.95 0.01 260);
+  --muted: oklch(0.27 0.025 260);
+  --muted-foreground: oklch(0.70 0.02 260);
+  --accent: oklch(0.30 0.05 200);
+  --accent-foreground: oklch(0.95 0.01 260);
+  --destructive: oklch(0.65 0.22 25);
+  --border: oklch(1 0 0 / 8%);
+  --input: oklch(1 0 0 / 12%);
+  --ring: oklch(0.65 0.20 270);
+  --chart-1: oklch(0.65 0.20 270);
+  --chart-2: oklch(0.70 0.18 162);
+  --chart-3: oklch(0.72 0.15 200);
+  --chart-4: oklch(0.78 0.18 65);
+  --chart-5: oklch(0.68 0.22 25);
+  --sidebar: oklch(0.18 0.025 260);
+  --sidebar-foreground: oklch(0.78 0.015 260);
+  --sidebar-primary: oklch(0.65 0.20 270);
+  --sidebar-primary-foreground: oklch(0.99 0.005 260);
+  --sidebar-accent: oklch(0.26 0.030 260);
+  --sidebar-accent-foreground: oklch(0.95 0.01 260);
+  --sidebar-border: oklch(1 0 0 / 8%);
+  --sidebar-ring: oklch(0.65 0.20 270);
 }
 
 @layer base {
@@ -128,3 +130,158 @@
     @apply font-sans;
   }
 }
+
+/* ============================================================
+   Premium theme: ambient mesh gradient + noise texture
+   ============================================================ */
+
+@layer base {
+  /* The mesh-gradient overlay container — fixed full-screen,
+     rendered behind content, no interaction. */
+  .mesh-gradient-bg {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    overflow: hidden;
+  }
+
+  /* Three colored blobs with extreme blur, layered.
+     Light mode uses lower opacity, dark mode uses more presence. */
+  .mesh-gradient-bg::before,
+  .mesh-gradient-bg::after,
+  .mesh-gradient-bg > .mesh-blob {
+    content: "";
+    position: absolute;
+    border-radius: 50%;
+    filter: blur(120px);
+    opacity: 0.55;
+    will-change: transform;
+  }
+
+  /* Indigo blob — top-left */
+  .mesh-gradient-bg::before {
+    width: 60vw;
+    height: 60vw;
+    top: -20vw;
+    left: -10vw;
+    background: oklch(0.55 0.22 270);
+    opacity: 0.18;
+  }
+
+  /* Cyan / teal blob — bottom-right */
+  .mesh-gradient-bg::after {
+    width: 55vw;
+    height: 55vw;
+    bottom: -20vw;
+    right: -15vw;
+    background: oklch(0.70 0.15 200);
+    opacity: 0.12;
+  }
+
+  /* Emerald blob — center-ish */
+  .mesh-blob {
+    width: 45vw;
+    height: 45vw;
+    top: 40%;
+    left: 30%;
+    background: oklch(0.65 0.18 162);
+    opacity: 0.08;
+  }
+
+  /* Dark theme: keep intensity restrained but visible */
+  .dark .mesh-gradient-bg::before {
+    opacity: 0.20;
+  }
+  .dark .mesh-gradient-bg::after {
+    opacity: 0.14;
+  }
+  .dark .mesh-blob {
+    opacity: 0.10;
+  }
+
+  /* Light theme: even more restrained, very subtle */
+  :root .mesh-gradient-bg::before {
+    opacity: 0.10;
+  }
+  :root .mesh-gradient-bg::after {
+    opacity: 0.07;
+  }
+  :root .mesh-blob {
+    opacity: 0.05;
+  }
+
+  /* Ensure content sits above the mesh */
+  .content-layer {
+    position: relative;
+    z-index: 1;
+  }
+}
+
+/* ============================================================
+   Subtle noise texture — adds film grain, breaks pure flat
+   ============================================================ */
+@layer base {
+  .noise-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    opacity: 0.025;
+    mix-blend-mode: overlay;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+  }
+
+  .dark .noise-overlay {
+    opacity: 0.04;
+  }
+}
+
+/* === Premium typography polish === */
+@layer base {
+  html {
+    font-feature-settings: "cv11", "ss01", "cv02";
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Heading rhythm — tighter tracking, dialed weights, Inter Display font */
+  h1 {
+    @apply tracking-tight font-bold font-heading;
+  }
+  h2 {
+    @apply tracking-tight font-semibold font-heading;
+  }
+  h3, h4 {
+    @apply tracking-tight font-semibold font-heading;
+  }
+
+  /* Tabular numbers for KPIs — aligned digits look much more premium */
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* === Subtle scroll polish === */
+@layer base {
+  /* Premium thin scrollbars in app shell */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: oklch(from var(--foreground) l c h / 0.15);
+    border-radius: 999px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: oklch(from var(--foreground) l c h / 0.25);
+    background-clip: content-box;
+  }
+}
+

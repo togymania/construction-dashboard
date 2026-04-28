@@ -516,7 +516,7 @@ function MiniStatCard({ icon, label, value, subline, valueColor }: MiniStatCardP
         {icon}
       </CardHeader>
       <CardContent>
-        <div className={"text-2xl font-bold " + (valueColor ?? "")}>{value}</div>
+        <div className={"text-3xl font-bold tracking-tight tabular-nums font-heading " + (valueColor ?? "")}>{value}</div>
         {subline && (
           <p className="text-xs mt-1 text-muted-foreground">{subline}</p>
         )}

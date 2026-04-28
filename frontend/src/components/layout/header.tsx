@@ -80,14 +80,14 @@ export function Header() {
           <Input
             type="search"
             placeholder="Search..."
-            className="w-64 pl-8"
+            className="w-64 pl-8 bg-card/50 backdrop-blur-sm border-foreground/8 dark:border-white/8 focus-visible:ring-primary/50 focus-visible:ring-2 transition-all"
           />
         </div>
       </div>
 
-      <Button variant="outline" size="icon" className="relative">
+      <Button variant="outline" size="icon" className="relative bg-card/50 backdrop-blur-sm border-foreground/8 dark:border-white/8 hover:bg-primary/10 hover:border-primary/30 transition-all">
         <Bell className="h-4 w-4" />
-        <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-destructive text-[10px] text-destructive-foreground">
+        <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-destructive text-[10px] text-destructive-foreground shadow-[0_0_8px_rgba(239,68,68,0.5)]">
           3
         </span>
         <span className="sr-only">Notifications</span>

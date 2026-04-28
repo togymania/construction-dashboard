@@ -430,19 +430,31 @@ export default function ProjectBudgetPage() {
                     nameKey="name"
                     cx="50%"
                     cy="50%"
-                    outerRadius={90}
-                    label={({ name, percent }) =>
-                      `${name} ${((percent ?? 0) * 100).toFixed(0)}%`
-                    }
+                    innerRadius={60}
+                    outerRadius={95}
+                    paddingAngle={2}
+                    label={(entry) => {
+                      const pct = (entry.percent ?? 0) * 100;
+                      return pct >= 5 ? `${pct.toFixed(0)}%` : "";
+                    }}
                     labelLine={false}
                   >
                     {pieData.map((_, idx) => (
-                      <Cell key={idx} fill={CHART_COLORS[idx % CHART_COLORS.length]} />
+                      <Cell
+                        key={idx}
+                        fill={CHART_COLORS[idx % CHART_COLORS.length]}
+                        stroke="transparent"
+                      />
                     ))}
                   </Pie>
                   <Tooltip
                     formatter={(value: number) => formatRub(value)}
                     contentStyle={{ fontSize: 12 }}
+                  />
+                  <Legend
+                    verticalAlign="bottom"
+                    iconType="circle"
+                    wrapperStyle={{ fontSize: 12, paddingTop: 8 }}
                   />
                 </PieChart>
               </ResponsiveContainer>

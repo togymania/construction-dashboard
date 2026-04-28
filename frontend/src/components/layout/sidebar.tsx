@@ -88,13 +88,14 @@ export function Sidebar({ className }: { className?: string }) {
               key={item.name}
               href={item.href}
               className={cn(
-                "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+                "group relative flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-all duration-300",
+                "before:absolute before:left-0 before:top-1/2 before:-translate-y-1/2 before:rounded-r-full before:transition-all before:duration-300",
                 isActive
-                  ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                  : "text-muted-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
+                  ? "bg-primary/10 text-foreground before:h-6 before:w-[3px] before:bg-primary before:shadow-[0_0_12px_rgba(99,102,241,0.6)]"
+                  : "text-muted-foreground hover:bg-primary/5 hover:text-foreground before:h-0 before:w-[3px] before:bg-transparent"
               )}
             >
-              <Icon className="h-4 w-4" />
+              <Icon className={cn("h-4 w-4 transition-colors duration-300", isActive && "text-primary")} />
               {item.name}
             </Link>
           );
@@ -103,7 +104,7 @@ export function Sidebar({ className }: { className?: string }) {
         {visibleAdminLinks.length > 0 && (
           <>
             <div className="pt-4 pb-1">
-              <p className="px-3 text-xs font-semibold text-muted-foreground/70 uppercase tracking-wider">
+              <p className="px-3 text-[10px] font-semibold text-muted-foreground/60 uppercase tracking-[0.2em]">
                 Admin
               </p>
             </div>
@@ -115,13 +116,14 @@ export function Sidebar({ className }: { className?: string }) {
                   key={item.name}
                   href={item.href}
                   className={cn(
-                    "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+                    "group relative flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-all duration-300",
+                    "before:absolute before:left-0 before:top-1/2 before:-translate-y-1/2 before:rounded-r-full before:transition-all before:duration-300",
                     isActive
-                      ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                      : "text-muted-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
+                      ? "bg-primary/10 text-foreground before:h-6 before:w-[3px] before:bg-primary before:shadow-[0_0_12px_rgba(99,102,241,0.6)]"
+                      : "text-muted-foreground hover:bg-primary/5 hover:text-foreground before:h-0 before:w-[3px] before:bg-transparent"
                   )}
                 >
-                  <Icon className="h-4 w-4" />
+                  <Icon className={cn("h-4 w-4 transition-colors duration-300", isActive && "text-primary")} />
                   {item.name}
                 </Link>
               );
@@ -135,9 +137,9 @@ export function Sidebar({ className }: { className?: string }) {
       <div className="p-3 space-y-1">
         <Link
           href="/settings"
-          className="flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
+          className="group flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-muted-foreground transition-all duration-300 hover:bg-primary/5 hover:text-foreground"
         >
-          <Settings className="h-4 w-4" />
+          <Settings className="h-4 w-4 transition-colors duration-300 group-hover:text-primary" />
           Settings
         </Link>
 

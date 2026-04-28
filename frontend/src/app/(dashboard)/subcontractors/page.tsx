@@ -266,6 +266,7 @@ export default function SubcontractorsPage() {
                       <StatusBadge
                         status={item.status}
                         colorMap={SUBCONTRACTOR_STATUS_COLORS}
+                        withDot={item.status === "active"}
                       />
                     </TableCell>
                     <TableCell className="text-right">
@@ -326,7 +327,7 @@ function KpiCard({ icon, label, value, subline, sublineColor, highlight }: KpiCa
         {value === null ? (
           <Skeleton className="h-8 w-24" />
         ) : (
-          <div className="text-2xl font-bold">{value}</div>
+          <div className="text-3xl font-bold tracking-tight tabular-nums font-heading">{value}</div>
         )}
         {subline && (
           <p className={"text-xs mt-1 " + (sublineColor ?? "text-muted-foreground")}>

@@ -141,9 +141,15 @@ export function KpiCharts({ kpis }: Props) {
                   dataKey="value"
                   nameKey="name"
                   cx="50%"
-                  cy="50%"
-                  outerRadius={90}
-                  label={(entry) => `${entry.name}`}
+                  cy="45%"
+                  innerRadius={55}
+                  outerRadius={85}
+                  paddingAngle={2}
+                  label={(entry) => {
+                    const pct = (entry.percent ?? 0) * 100;
+                    return pct >= 6 ? `${pct.toFixed(0)}%` : "";
+                  }}
+                  labelLine={false}
                 >
                   {paymentsData.map((entry, index) => (
                     <Cell
@@ -152,6 +158,7 @@ export function KpiCharts({ kpis }: Props) {
                         PAYMENT_STATUS_COLORS[entry.rawStatus] ??
                         PIE_COLORS[index % PIE_COLORS.length]
                       }
+                      stroke="transparent"
                     />
                   ))}
                 </Pie>
@@ -160,7 +167,11 @@ export function KpiCharts({ kpis }: Props) {
                     typeof v === "number" ? formatRubCompact(v) : String(v)
                   }
                 />
-                <Legend />
+                <Legend
+                  verticalAlign="bottom"
+                  iconType="circle"
+                  wrapperStyle={{ fontSize: 12, paddingTop: 8 }}
+                />
               </PieChart>
             </ResponsiveContainer>
           )}
@@ -264,10 +275,15 @@ export function KpiCharts({ kpis }: Props) {
                   dataKey="value"
                   nameKey="name"
                   cx="50%"
-                  cy="50%"
+                  cy="45%"
                   innerRadius={55}
-                  outerRadius={90}
-                  label={(entry) => `${entry.name}: ${entry.value}`}
+                  outerRadius={85}
+                  paddingAngle={2}
+                  label={(entry) => {
+                    const pct = (entry.percent ?? 0) * 100;
+                    return pct >= 8 ? `${entry.value}` : "";
+                  }}
+                  labelLine={false}
                 >
                   {contractsData.map((entry, index) => (
                     <Cell
@@ -276,11 +292,16 @@ export function KpiCharts({ kpis }: Props) {
                         CONTRACT_STATUS_COLORS[entry.rawStatus] ??
                         PIE_COLORS[index % PIE_COLORS.length]
                       }
+                      stroke="transparent"
                     />
                   ))}
                 </Pie>
                 <Tooltip />
-                <Legend />
+                <Legend
+                  verticalAlign="bottom"
+                  iconType="circle"
+                  wrapperStyle={{ fontSize: 12, paddingTop: 8 }}
+                />
               </PieChart>
             </ResponsiveContainer>
           )}

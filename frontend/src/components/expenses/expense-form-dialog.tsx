@@ -235,12 +235,15 @@ export function ExpenseFormDialog({
                 Link to Budget Item{" "}
                 <span className="text-muted-foreground text-xs">(optional)</span>
               </Label>
-              <Select value={budgetItemId} onValueChange={setBudgetItemId}>
+              <Select
+                value={budgetItemId || "_none"}
+                onValueChange={(v) => setBudgetItemId(v === "_none" ? "" : v)}
+              >
                 <SelectTrigger id="exp-budget-item">
                   <SelectValue placeholder="None" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">None</SelectItem>
+                  <SelectItem value="_none">None</SelectItem>
                   {budgetItems.map((bi) => (
                     <SelectItem key={bi.id} value={String(bi.id)}>
                       {bi.category.name} — {bi.description}

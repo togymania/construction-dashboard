@@ -26,8 +26,19 @@ interface Props {
   colorMap: Record<string, BadgeColor>;
   /** Optional override for the displayed label (default: pretty-printed status). */
   label?: string;
+  /** Show a pulsing dot before the label (premium live indicator). */
+  withDot?: boolean;
   className?: string;
 }
+
+const DOT_BG_CLASSES: Record<BadgeColor, string> = {
+  green: "bg-emerald-500",
+  amber: "bg-amber-500",
+  red: "bg-red-500",
+  blue: "bg-blue-500",
+  gray: "bg-slate-400",
+  purple: "bg-purple-500",
+};
 
 /**
  * Small, theme-aware status badge.
@@ -38,18 +49,34 @@ interface Props {
  *     colorMap={{ active: "green", suspended: "amber", blacklisted: "red" }}
  *   />
  */
-export function StatusBadge({ status, colorMap, label, className }: Props) {
+export function StatusBadge({ status, colorMap, label, withDot = false, className }: Props) {
   const color = colorMap[status] ?? "gray";
   const text = label ?? prettify(status);
 
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs font-medium",
+        "inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-xs font-medium",
         COLOR_CLASSES[color],
         className
       )}
     >
+      {withDot && (
+        <span className="relative flex h-1.5 w-1.5">
+          <span
+            className={cn(
+              "absolute inline-flex h-full w-full rounded-full opacity-75 animate-ping",
+              DOT_BG_CLASSES[color]
+            )}
+          />
+          <span
+            className={cn(
+              "relative inline-flex h-1.5 w-1.5 rounded-full",
+              DOT_BG_CLASSES[color]
+            )}
+          />
+        </span>
+      )}
       {text}
     </span>
   );
