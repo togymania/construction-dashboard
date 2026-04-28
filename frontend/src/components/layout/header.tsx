@@ -17,11 +17,32 @@ import {
 import { ThemeToggle } from "@/components/theme-toggle";
 import { useUser } from "@/components/providers/user-provider";
 
+function isDynamicSegment(s: string): boolean {
+  // Treat numeric IDs and UUID-like strings as dynamic — not human-readable.
+  return /^\\d+$/.test(s) || /^[0-9a-f]{8}-[0-9a-f]{4}/i.test(s);
+}
+
+function prettify(s: string): string {
+  return s
+    .split(/[-_]/)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
+}
+
 function getBreadcrumb(pathname: string): string {
   if (pathname === "/") return "Dashboard";
   const segments = pathname.split("/").filter(Boolean);
-  const last = segments[segments.length - 1];
-  return last.charAt(0).toUpperCase() + last.slice(1);
+  // Walk from the end and pick the last non-dynamic segment as the title.
+  // /subcontractors/1                  -> "Subcontractors"
+  // /projects/1/budget                 -> "Budget"
+  // /subcontractors/1/contracts/3      -> "Contracts"
+  // /settings/budget-categories        -> "Budget Categories"
+  for (let i = segments.length - 1; i >= 0; i--) {
+    if (!isDynamicSegment(segments[i])) {
+      return prettify(segments[i]);
+    }
+  }
+  return prettify(segments[0] ?? "");
 }
 
 function getInitials(fullName: string): string {

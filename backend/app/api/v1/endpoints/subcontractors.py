@@ -838,3 +838,88 @@ async def delete_payment(
         )
     await db.delete(payment)
     await db.commit()
+
+
+# ============================================================================
+# Cross-cut: contracts under a specific project
+# ============================================================================
+
+@router.get(
+    "/projects/{project_id}/subcontractor-contracts",
+    response_model=list[ContractResponse],
+    summary="List all subcontractor contracts on a specific project",
+    tags=["Subcontractors"],
+)
+async def list_contracts_for_project(
+    project_id: int,
+    user: CurrentUser,
+    db: DBSession,
+    status_filter: ContractStatus | None = Query(None, alias="status"),
+) -> list[ContractResponse]:
+    # Verify project exists (and is active)
+    project = await db.get(Project, project_id)
+    if project is None or not project.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Project not found",
+        )
+
+    conditions = [SubcontractorContract.project_id == project_id]
+    if status_filter is not None:
+        conditions.append(SubcontractorContract.status == status_filter)
+
+    stmt = (
+        select(SubcontractorContract)
+        .options(
+            selectinload(SubcontractorContract.subcontractor),
+            selectinload(SubcontractorContract.project),
+        )
+        .where(and_(*conditions))
+        .order_by(SubcontractorContract.start_date.desc(), SubcontractorContract.id.desc())
+    )
+    contracts = list((await db.execute(stmt)).scalars().all())
+    if not contracts:
+        return []
+
+    contract_ids = [c.id for c in contracts]
+    today = _today()
+
+    paid_map: dict[int, Decimal] = {
+        cid: Decimal(amt or 0) for cid, amt in (await db.execute(
+            select(
+                SubcontractorPayment.contract_id,
+                func.coalesce(func.sum(SubcontractorPayment.amount), 0),
+            ).where(
+                SubcontractorPayment.contract_id.in_(contract_ids),
+                SubcontractorPayment.status == PaymentStatus.PAID,
+            ).group_by(SubcontractorPayment.contract_id)
+        )).all()
+    }
+    pending_map: dict[int, Decimal] = {
+        cid: Decimal(amt or 0) for cid, amt in (await db.execute(
+            select(
+                SubcontractorPayment.contract_id,
+                func.coalesce(func.sum(SubcontractorPayment.amount), 0),
+            ).where(
+                SubcontractorPayment.contract_id.in_(contract_ids),
+                SubcontractorPayment.status.in_([PaymentStatus.PENDING, PaymentStatus.APPROVED]),
+            ).group_by(SubcontractorPayment.contract_id)
+        )).all()
+    }
+    count_map: dict[int, int] = {
+        cid: int(cnt or 0) for cid, cnt in (await db.execute(
+            select(SubcontractorPayment.contract_id, func.count(SubcontractorPayment.id))
+            .where(SubcontractorPayment.contract_id.in_(contract_ids))
+            .group_by(SubcontractorPayment.contract_id)
+        )).all()
+    }
+
+    return [
+        _contract_to_response(c, {
+            "paid_amount": paid_map.get(c.id, Decimal("0")),
+            "pending_amount": pending_map.get(c.id, Decimal("0")),
+            "payment_count": count_map.get(c.id, 0),
+            "is_overdue": (c.status == ContractStatus.ACTIVE and c.end_date < today),
+        })
+        for c in contracts
+    ]

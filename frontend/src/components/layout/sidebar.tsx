@@ -24,6 +24,7 @@ const navigation = [
   { name: "Dashboard", href: "/", icon: LayoutDashboard },
   { name: "Projects", href: "/projects", icon: Briefcase },
   { name: "Budget", href: "/budget", icon: Wallet },
+  { name: "Subcontractors", href: "/subcontractors", icon: HardHat },
   { name: "Schedule", href: "/schedule", icon: Calendar },
   { name: "Risks", href: "/risks", icon: AlertTriangle },
   { name: "Reports", href: "/reports", icon: FileBarChart },

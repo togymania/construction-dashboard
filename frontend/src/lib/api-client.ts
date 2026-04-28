@@ -67,6 +67,21 @@ import type {
   BudgetImportResult,
   BudgetImportMode,
 } from "@/types/budget";
+import type {
+  ContractPayload,
+  ContractUpdatePayload,
+  PaymentPayload,
+  PaymentUpdatePayload,
+  Subcontractor,
+  SubcontractorContract,
+  SubcontractorKPIs,
+  SubcontractorListItem,
+  SubcontractorPayload,
+  SubcontractorPayment,
+  SubcontractorStatus,
+  SubcontractorUpdatePayload,
+  ContractStatus,
+} from "@/types/subcontractor";
 
 interface ProjectPayload {
   name: string;
@@ -220,5 +235,119 @@ export const api = {
       request<void>("/projects/" + projectId + "/expenses/" + id, {
         method: "DELETE",
       }),
+  },
+  subcontractors: {
+    list: (params?: {
+      status?: SubcontractorStatus;
+      specialization?: string;
+      search?: string;
+      include_inactive?: boolean;
+    }) => {
+      const qs = new URLSearchParams();
+      if (params?.status) qs.set("status", params.status);
+      if (params?.specialization) qs.set("specialization", params.specialization);
+      if (params?.search) qs.set("search", params.search);
+      if (params?.include_inactive) qs.set("include_inactive", "true");
+      const query = qs.toString();
+      return request<SubcontractorListItem[]>(
+        "/subcontractors" + (query ? "?" + query : "")
+      );
+    },
+    get: (id: number) => request<Subcontractor>("/subcontractors/" + id),
+    create: (data: SubcontractorPayload) =>
+      request<Subcontractor>("/subcontractors", {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+    update: (id: number, data: SubcontractorUpdatePayload) =>
+      request<Subcontractor>("/subcontractors/" + id, {
+        method: "PATCH",
+        body: JSON.stringify(data),
+      }),
+    delete: (id: number) =>
+      request<void>("/subcontractors/" + id, {
+        method: "DELETE",
+      }),
+    specializations: () =>
+      request<string[]>("/subcontractors/specializations"),
+    kpis: () =>
+      request<SubcontractorKPIs>("/subcontractors/stats/kpis"),
+
+    contracts: {
+      list: (subId: number, statusFilter?: ContractStatus) => {
+        const qs = new URLSearchParams();
+        if (statusFilter) qs.set("status", statusFilter);
+        const query = qs.toString();
+        return request<SubcontractorContract[]>(
+          "/subcontractors/" + subId + "/contracts" + (query ? "?" + query : "")
+        );
+      },
+      listForProject: (projectId: number, statusFilter?: ContractStatus) => {
+        const qs = new URLSearchParams();
+        if (statusFilter) qs.set("status", statusFilter);
+        const query = qs.toString();
+        return request<SubcontractorContract[]>(
+          "/projects/" + projectId + "/subcontractor-contracts" + (query ? "?" + query : "")
+        );
+      },
+      get: (subId: number, contractId: number) =>
+        request<SubcontractorContract>(
+          "/subcontractors/" + subId + "/contracts/" + contractId
+        ),
+      create: (subId: number, data: ContractPayload) =>
+        request<SubcontractorContract>("/subcontractors/" + subId + "/contracts", {
+          method: "POST",
+          body: JSON.stringify(data),
+        }),
+      update: (subId: number, contractId: number, data: ContractUpdatePayload) =>
+        request<SubcontractorContract>(
+          "/subcontractors/" + subId + "/contracts/" + contractId,
+          {
+            method: "PATCH",
+            body: JSON.stringify(data),
+          }
+        ),
+      delete: (subId: number, contractId: number) =>
+        request<void>(
+          "/subcontractors/" + subId + "/contracts/" + contractId,
+          {
+            method: "DELETE",
+          }
+        ),
+    },
+    payments: {
+      list: (subId: number, contractId: number) =>
+        request<SubcontractorPayment[]>(
+          "/subcontractors/" + subId + "/contracts/" + contractId + "/payments"
+        ),
+      create: (subId: number, contractId: number, data: PaymentPayload) =>
+        request<SubcontractorPayment>(
+          "/subcontractors/" + subId + "/contracts/" + contractId + "/payments",
+          {
+            method: "POST",
+            body: JSON.stringify(data),
+          }
+        ),
+      update: (
+        subId: number,
+        contractId: number,
+        paymentId: number,
+        data: PaymentUpdatePayload
+      ) =>
+        request<SubcontractorPayment>(
+          "/subcontractors/" + subId + "/contracts/" + contractId + "/payments/" + paymentId,
+          {
+            method: "PATCH",
+            body: JSON.stringify(data),
+          }
+        ),
+      delete: (subId: number, contractId: number, paymentId: number) =>
+        request<void>(
+          "/subcontractors/" + subId + "/contracts/" + contractId + "/payments/" + paymentId,
+          {
+            method: "DELETE",
+          }
+        ),
+    },
   },
 };

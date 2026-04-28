@@ -1,6 +1,7 @@
 "use client";
 
 import { Fragment, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import {
   Plus,
@@ -13,6 +14,8 @@ import {
   FileSpreadsheet,
   Trash2,
   Pencil,
+  HardHat,
+  FileText,
 } from "lucide-react";
 import {
   PieChart,
@@ -94,6 +97,11 @@ import { BudgetItemFormDialog } from "@/components/budget-items/budget-item-form
 import { BudgetItemImportDialog } from "@/components/budget-items/budget-item-import-dialog";
 import { ExpenseFormDialog } from "@/components/expenses/expense-form-dialog";
 import { ExpenseImportDialog } from "@/components/expenses/expense-import-dialog";
+import {
+  StatusBadge,
+  CONTRACT_STATUS_COLORS,
+} from "@/components/ui/status-badge";
+import type { SubcontractorContract } from "@/types/subcontractor";
 
 const CHART_COLORS = [
   "#3b82f6",
@@ -122,6 +130,22 @@ export default function ProjectBudgetPage() {
   // Budget Item dialogs
   const [formOpen, setFormOpen] = useState(false);
   const [itemImportOpen, setItemImportOpen] = useState(false);
+
+  // Subcontractors tab data (lazy-loaded on first activation)
+  const [subContracts, setSubContracts] = useState<SubcontractorContract[] | null>(null);
+  const [subContractsLoaded, setSubContractsLoaded] = useState(false);
+
+  async function loadSubContracts() {
+    if (subContractsLoaded) return;
+    try {
+      const data = await api.subcontractors.contracts.listForProject(projectId);
+      setSubContracts(data);
+      setSubContractsLoaded(true);
+    } catch {
+      setSubContracts([]);
+      setSubContractsLoaded(true);
+    }
+  }
   const [editingItem, setEditingItem] = useState<BudgetItem | null>(null);
   const [deletingItem, setDeletingItem] = useState<BudgetItem | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -478,6 +502,10 @@ export default function ProjectBudgetPage() {
               </Badge>
             )}
           </TabsTrigger>
+          <TabsTrigger value="subcontractors" onClick={loadSubContracts}>
+            <HardHat className="h-4 w-4 mr-2" />
+            Subcontractors
+          </TabsTrigger>
         </TabsList>
 
         {/* ===== Budget Items Tab ===== */}
@@ -741,6 +769,161 @@ export default function ProjectBudgetPage() {
               )}
             </CardContent>
           </Card>
+        </TabsContent>
+
+        {/* ===== Subcontractors Tab ===== */}
+        <TabsContent value="subcontractors" className="space-y-4">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <CardTitle className="text-base flex items-center gap-2">
+                <HardHat className="h-4 w-4" />
+                Subcontractor Contracts on This Project
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {subContracts === null ? (
+                <div className="space-y-2">
+                  {Array.from({ length: 3 }).map((_, i) => (
+                    <Skeleton key={i} className="h-12 w-full" />
+                  ))}
+                </div>
+              ) : subContracts.length === 0 ? (
+                <div className="text-center py-12 text-muted-foreground">
+                  <HardHat className="h-10 w-10 mx-auto mb-3 opacity-30" />
+                  <p>No subcontractor contracts on this project yet.</p>
+                  <Link
+                    href="/subcontractors"
+                    className="text-primary text-sm hover:underline mt-2 inline-block"
+                  >
+                    Go to subcontractors directory &rarr;
+                  </Link>
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Subcontractor</TableHead>
+                      <TableHead>Contract #</TableHead>
+                      <TableHead>Description</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead className="text-right">Amount</TableHead>
+                      <TableHead className="text-right">Paid</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {subContracts.map((c) => {
+                      const paidPct =
+                        parseFloat(c.contract_amount) > 0
+                          ? (parseFloat(c.paid_amount) /
+                              parseFloat(c.contract_amount)) *
+                            100
+                          : 0;
+                      return (
+                        <TableRow
+                          key={c.id}
+                          className="cursor-pointer hover:bg-muted/40"
+                        >
+                          <TableCell className="font-medium">
+                            {c.subcontractor ? (
+                              <Link
+                                href={`/subcontractors/${c.subcontractor.id}`}
+                                className="hover:underline"
+                              >
+                                {c.subcontractor.name}
+                              </Link>
+                            ) : (
+                              "-"
+                            )}
+                            {c.subcontractor?.specialization && (
+                              <div className="text-xs text-muted-foreground">
+                                {c.subcontractor.specialization}
+                              </div>
+                            )}
+                          </TableCell>
+                          <TableCell className="font-mono text-xs">
+                            {c.subcontractor && (
+                              <Link
+                                href={`/subcontractors/${c.subcontractor.id}/contracts/${c.id}`}
+                                className="hover:underline"
+                              >
+                                {c.contract_number ?? `#${c.id}`}
+                              </Link>
+                            )}
+                          </TableCell>
+                          <TableCell className="max-w-xs truncate" title={c.description}>
+                            {c.description}
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex flex-col gap-1 items-start">
+                              <StatusBadge
+                                status={c.status}
+                                colorMap={CONTRACT_STATUS_COLORS}
+                              />
+                              {c.is_overdue && (
+                                <span className="inline-flex items-center gap-1 text-[10px] text-red-600 dark:text-red-400 font-medium">
+                                  <AlertCircle className="h-2.5 w-2.5" />
+                                  Overdue
+                                </span>
+                              )}
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-right font-medium">
+                            {formatRubCompact(c.contract_amount)}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <div>{formatRubCompact(c.paid_amount)}</div>
+                            <div className="text-xs text-muted-foreground">
+                              {paidPct.toFixed(0)}%
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
+
+          {subContracts && subContracts.length > 0 && (
+            <Card>
+              <CardContent className="pt-6 grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
+                <div>
+                  <p className="text-muted-foreground text-xs">Total Contract Value</p>
+                  <p className="font-semibold text-lg">
+                    {formatRub(
+                      subContracts.reduce(
+                        (s, c) => s + parseFloat(c.contract_amount),
+                        0
+                      )
+                    )}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground text-xs">Total Paid</p>
+                  <p className="font-semibold text-lg text-emerald-600 dark:text-emerald-400">
+                    {formatRub(
+                      subContracts.reduce(
+                        (s, c) => s + parseFloat(c.paid_amount),
+                        0
+                      )
+                    )}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground text-xs">Total Pending / Approved</p>
+                  <p className="font-semibold text-lg text-amber-600 dark:text-amber-400">
+                    {formatRub(
+                      subContracts.reduce(
+                        (s, c) => s + parseFloat(c.pending_amount),
+                        0
+                      )
+                    )}
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </TabsContent>
       </Tabs>
 
