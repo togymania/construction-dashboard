@@ -12,6 +12,12 @@ from app.models.subcontractor import (
     SubcontractorStatus,
 )
 from app.models.user import User
+from app.models.workforce import (
+    WorkforceCategory,
+    WorkforceCount,
+    WorkforcePosition,
+    WorkforceSnapshot,
+)
 
 __all__ = [
     "BudgetCategory",
@@ -28,4 +34,8 @@ __all__ = [
     "SubcontractorPayment",
     "SubcontractorStatus",
     "User",
+    "WorkforceCategory",
+    "WorkforceCount",
+    "WorkforcePosition",
+    "WorkforceSnapshot",
 ]

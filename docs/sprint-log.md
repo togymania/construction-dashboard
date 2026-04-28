@@ -4,6 +4,61 @@ Living, day-by-day log. Forward-looking master plan is in
 docs/plans/sprint_roadmap.md. Day-specific plans live under
 docs/plans/dayN_*_plan.md.
 
+## Day 10 — Workforce Module + Sidebar Cleanup (2026-04-28)
+
+**Status:** Committed end of day, cosmetics + Top Positions chart fix carried to Day 11.
+
+### What landed
+
+**Phase 1: Sidebar cleanup (~10 min)**
+- Removed broken `/budget` nav link.
+- Added 3 placeholder pages: `/schedule`, `/risks`, `/reports` via reusable `<ComingSoonPage>` component.
+- Added `Workforce` nav item with `Users` icon between Subcontractors and Schedule.
+
+**Phase 2: Workforce backend (~3 hours total, multiple migrations)**
+- 3 SQLAlchemy models: `WorkforcePosition` (catalog), `WorkforceSnapshot` (daily, denormalized aggregates), `WorkforceCount` (atomic per-position).
+- 13 Pydantic schemas including KPI bundle with per-category cards, daily trend, weekly buckets, top positions, multi-import response.
+- 10 endpoints: positions CRUD, project-scoped snapshots, KPI bundle, multi-file Excel import.
+- Excel parser for cover-page format (Monotekstroy/Monart puantaj). Auto-detects Section A (PRODUCTIVE) / B (UNPRODUCTIVE) / C (SUBCONT). Validates GRAND TOTAL, surfaces mismatches as non-blocking warnings.
+- Migration `70b1a888e789` initial workforce tables.
+- Migration `eee0e6994fba` adds `company_label` column + UNIQUE `(project_id, snapshot_date, company_label)` to allow Mono and Monart snapshots on the same date.
+
+**Phase 3: Workforce frontend (~2 hours)**
+- Types in `frontend/src/types/workforce.ts` matching backend Pydantic 1:1.
+- `api.workforce` namespace in `api-client.ts` with 10 functions including multi-file `importExcel(files: File[])`.
+- Dashboard charts component (`dashboard-charts.tsx`): TopPositionsChart, TodayByCategoryChart, DailyTrendChart, WeeklyComparisonChart. Color triad indigo/cyan/emerald.
+- Page `/workforce/page.tsx`: 3 KPI cards (Mono+Monart total) + per-company breakdown card (Today by Company) + charts + recent snapshots with company badges.
+- Upload dialog with multi-file picker, progressive validation, per-file result panel showing company badge + warnings (GRAND_TOTAL_MISMATCH, UNKNOWN_POSITION_CREATED, SNAPSHOT_REPLACED).
+
+**Phase 4: User-driven schema upgrade**
+- After initial single-file upload UX, user requested multi-file (Mono + Monart upload together) with sticky 2-company model. Refactored DB + endpoint + frontend to support `company_label` per snapshot.
+- KPI endpoint rewritten: same date with multiple companies sums for project-wide totals AND breaks out per company. Added `by_company_today` to bundle.
+- Daily trend now sums Mono+Monart per date.
+- Weekly bucket simplified to "this week vs last week" (last 2 weeks only).
+
+### Bugs fought
+
+- **PostgreSQL substring trap:** `"PRODUCTIVE LABOUR"` matches inside `"UNPRODUCTIVE LABOUR"`. Section A end check needed `"UNPRODUCTIVE" not in joined_upper` negation.
+- **Async SQLAlchemy + sync helpers:** Lazy-loaded relationships (`obj.relationship.attr`) cause `MissingGreenlet` errors when called from sync code in async context. Fixed `_recompute_snapshot_aggregates` to be async + fetch positions explicitly via dict map.
+- **Pydantic serialization through async session:** `expire_on_commit=False` not enough — final fetch + relationship lazy-load still bombs. Fixed by building response manually with explicit per-table fetches and constructing Pydantic models from dicts (no `from_attributes`).
+- **PowerShell heredoc + Python f-strings:** `<` characters can vanish in TypeScript generics (`Record<...>`) when written via PowerShell pipe to Python heredoc. Manual diff-and-fix with `str_replace`.
+- **Recharts Tooltip formatter signature change** (TS strict): tuple return rejected — switch to single string return.
+- **FastAPI auth login:** endpoint accepts JSON with `email` field (not OAuth2 form `username`). Token field is `access_token`.
+
+### Carried to Day 11
+
+- Top Positions chart legend hidden when single-category dominates (visual: all bars same color even though `<Cell>` per-bar fill is correct).
+- Daily and Weekly chart UX polish — user feedback that they're hard to read for first-time viewers.
+- Phase 4 polish (alert→toast with sonner) — never done; subcontractor pages still use native alerts.
+
+### Validation
+
+- 2 production-shape Excel files parsed cleanly (Monotekstroy 1495 present, Monart 304 present).
+- Multi-file upload with both companies coexisting on same date verified end-to-end via TestClient.
+- 16 snapshots on file at end of day (user added several days of real data via the new dialog).
+
+---
+
 ## Day 1 - Foundation
 
 - Repo bootstrapped, Docker compose, env scaffolding

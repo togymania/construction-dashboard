@@ -6,12 +6,12 @@ import { usePathname } from "next/navigation";
 import {
   LayoutDashboard,
   Briefcase,
-  Wallet,
   Calendar,
   AlertTriangle,
   FileBarChart,
   Settings,
   HardHat,
+  Users,
   Tags,
 } from "lucide-react";
 
@@ -23,8 +23,8 @@ import { useUser } from "@/components/providers/user-provider";
 const navigation = [
   { name: "Dashboard", href: "/", icon: LayoutDashboard },
   { name: "Projects", href: "/projects", icon: Briefcase },
-  { name: "Budget", href: "/budget", icon: Wallet },
   { name: "Subcontractors", href: "/subcontractors", icon: HardHat },
+  { name: "Workforce", href: "/workforce", icon: Users },
   { name: "Schedule", href: "/schedule", icon: Calendar },
   { name: "Risks", href: "/risks", icon: AlertTriangle },
   { name: "Reports", href: "/reports", icon: FileBarChart },

@@ -1,4 +1,16 @@
 import { getToken } from "@/lib/auth";
+import type {
+  WorkforceCategory,
+  WorkforceImportResponse,
+  WorkforceMultiImportResponse,
+  WorkforceKPIBundle,
+  WorkforcePosition,
+  WorkforcePositionCreatePayload,
+  WorkforcePositionUpdatePayload,
+  WorkforceSnapshot,
+  WorkforceSnapshotCreatePayload,
+  WorkforceSnapshotListItem,
+} from "@/types/workforce";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 const API_V1 = API_BASE_URL + "/api/v1";
@@ -348,6 +360,88 @@ export const api = {
             method: "DELETE",
           }
         ),
+    },
+  },
+  workforce: {
+    // ===== Positions =====
+    listPositions: (params?: { category?: WorkforceCategory; is_active?: boolean }) => {
+      const qs = new URLSearchParams();
+      if (params?.category) qs.set("category", params.category);
+      if (params?.is_active !== undefined) qs.set("is_active", String(params.is_active));
+      const tail = qs.toString() ? "?" + qs.toString() : "";
+      return request<WorkforcePosition[]>("/workforce/positions" + tail);
+    },
+
+    createPosition: (data: WorkforcePositionCreatePayload) =>
+      request<WorkforcePosition>("/workforce/positions", {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+
+    updatePosition: (positionId: number, data: WorkforcePositionUpdatePayload) =>
+      request<WorkforcePosition>("/workforce/positions/" + positionId, {
+        method: "PATCH",
+        body: JSON.stringify(data),
+      }),
+
+    deletePosition: (positionId: number) =>
+      request<void>("/workforce/positions/" + positionId, {
+        method: "DELETE",
+      }),
+
+    // ===== Project-scoped snapshots =====
+    listSnapshots: (
+      projectId: number,
+      params?: { limit?: number; offset?: number }
+    ) => {
+      const qs = new URLSearchParams();
+      if (params?.limit !== undefined) qs.set("limit", String(params.limit));
+      if (params?.offset !== undefined) qs.set("offset", String(params.offset));
+      const tail = qs.toString() ? "?" + qs.toString() : "";
+      return request<WorkforceSnapshotListItem[]>(
+        "/projects/" + projectId + "/workforce" + tail
+      );
+    },
+
+    getSnapshot: (projectId: number, snapshotDate: string) =>
+      request<WorkforceSnapshot>(
+        "/projects/" + projectId + "/workforce/" + snapshotDate
+      ),
+
+    upsertSnapshot: (
+      projectId: number,
+      data: WorkforceSnapshotCreatePayload
+    ) =>
+      request<WorkforceSnapshot>("/projects/" + projectId + "/workforce", {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+
+    deleteSnapshot: (projectId: number, snapshotDate: string) =>
+      request<void>(
+        "/projects/" + projectId + "/workforce/" + snapshotDate,
+        { method: "DELETE" }
+      ),
+
+    // ===== Dashboard KPIs =====
+    kpis: (projectId: number) =>
+      request<WorkforceKPIBundle>(
+        "/projects/" + projectId + "/workforce/kpis"
+      ),
+
+    // ===== Excel import =====
+    importExcel: (projectId: number, files: File[]) => {
+      const fd = new FormData();
+      for (const f of files) {
+        fd.append("files", f);
+      }
+      return request<WorkforceMultiImportResponse>(
+        "/projects/" + projectId + "/workforce/import",
+        {
+          method: "POST",
+          body: fd,
+        }
+      );
     },
   },
 };
