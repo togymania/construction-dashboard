@@ -194,8 +194,6 @@ class WorkforceKPICategoryToday(BaseModel):
     position_count: int  # how many distinct positions reported today
 
 
-
-
 class WorkforceKPICompanyToday(BaseModel):
     """Per-company breakdown for the dashboard 'today' view.
 
@@ -209,6 +207,8 @@ class WorkforceKPICompanyToday(BaseModel):
     indirect_present: int
     subcontractor_present: int
     total_present: int
+
+
 class WorkforceKPIDailyPoint(BaseModel):
     """A single point in the 30-day trend chart."""
 
@@ -239,6 +239,44 @@ class WorkforceKPITopPosition(BaseModel):
     present: int
 
 
+# ---------- Discipline breakdown ----------
+
+class WorkforceDisciplinePoint(BaseModel):
+    """Direct workforce discipline breakdown for a single day."""
+
+    snapshot_date: date
+    electrical: int
+    mechanical: int
+    civil: int
+
+
+class WorkforceDisciplineTodaySummary(BaseModel):
+    """Current-day discipline totals with delta."""
+
+    electrical: int
+    mechanical: int
+    civil: int
+    total_direct: int
+
+
+# ---------- AI Insights ----------
+
+class WorkforceInsight(BaseModel):
+    """A single AI-generated insight bullet."""
+
+    icon: str  # emoji or icon name
+    text: str
+    tone: str = "neutral"  # "positive" | "negative" | "neutral" | "warning"
+
+
+class WorkforceInsightsBundle(BaseModel):
+    """All insights grouped by timeframe."""
+
+    daily: list[WorkforceInsight] = Field(default_factory=list)
+    weekly: list[WorkforceInsight] = Field(default_factory=list)
+    monthly: list[WorkforceInsight] = Field(default_factory=list)
+
+
 class WorkforceKPIBundle(BaseModel):
     """Everything the dashboard page needs in one round-trip."""
 
@@ -250,6 +288,9 @@ class WorkforceKPIBundle(BaseModel):
     daily_trend: list[WorkforceKPIDailyPoint] = Field(default_factory=list)  # last 30 days
     weekly_buckets: list[WorkforceKPIWeeklyBucket] = Field(default_factory=list)  # last 8 weeks
     top_positions: list[WorkforceKPITopPosition] = Field(default_factory=list)  # top 8 today
+    discipline_today: WorkforceDisciplineTodaySummary | None = None
+    discipline_trend: list[WorkforceDisciplinePoint] = Field(default_factory=list)
+    insights: WorkforceInsightsBundle | None = None
 
 
 # =============================================================================

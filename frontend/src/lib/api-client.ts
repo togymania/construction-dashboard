@@ -80,12 +80,19 @@ import type {
   BudgetImportMode,
 } from "@/types/budget";
 import type {
+  ContractAlert,
+  ContractDocument,
+  ContractForecast,
   ContractPayload,
   ContractUpdatePayload,
+  MonthlyCashFlowPoint,
+  PaymentDiscipline,
   PaymentPayload,
   PaymentUpdatePayload,
+  RiskScore,
   Subcontractor,
   SubcontractorContract,
+  SubcontractorInsights,
   SubcontractorKPIs,
   SubcontractorListItem,
   SubcontractorPayload,
@@ -361,6 +368,44 @@ export const api = {
           }
         ),
     },
+    // ===== Financial Intelligence (Phase 1) =====
+    forecast: (subId: number, contractId: number) =>
+      request<ContractForecast>(
+        "/subcontractors/" + subId + "/contracts/" + contractId + "/forecast"
+      ),
+    paymentDiscipline: (subId: number) =>
+      request<PaymentDiscipline>("/subcontractors/" + subId + "/payment-discipline"),
+    cashflow: (subId: number) =>
+      request<MonthlyCashFlowPoint[]>("/subcontractors/" + subId + "/cashflow"),
+    // ===== Risk & Alerts (Phase 2) =====
+    contractAlerts: (subId: number, contractId: number) =>
+      request<ContractAlert[]>(
+        "/subcontractors/" + subId + "/contracts/" + contractId + "/alerts"
+      ),
+    riskScore: (subId: number) =>
+      request<RiskScore>("/subcontractors/" + subId + "/risk-score"),
+    // ===== Documents (Phase 3) =====
+    documents: {
+      list: (subId: number, contractId: number) =>
+        request<ContractDocument[]>(
+          "/subcontractors/" + subId + "/contracts/" + contractId + "/documents"
+        ),
+      upload: (subId: number, contractId: number, file: File, fileType: string = "CONTRACT") => {
+        const fd = new FormData();
+        fd.append("file", file);
+        return request<ContractDocument>(
+          "/subcontractors/" + subId + "/contracts/" + contractId + "/documents?file_type=" + fileType,
+          { method: "POST", body: fd }
+        );
+      },
+      download: (docId: number) =>
+        API_V1 + "/documents/" + docId + "/download",
+      delete: (docId: number) =>
+        request<void>("/documents/" + docId, { method: "DELETE" }),
+    },
+    // ===== AI Insights (Phase 4) =====
+    aiInsights: (subId: number) =>
+      request<SubcontractorInsights>("/subcontractors/" + subId + "/ai-insights"),
   },
   workforce: {
     // ===== Positions =====

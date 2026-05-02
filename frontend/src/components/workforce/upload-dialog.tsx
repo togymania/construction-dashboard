@@ -325,8 +325,14 @@ function FileResultRow({ result }: { result: WorkforceImportResponse }) {
             </div>
           )}
           {!result.success && (
-            <div className="text-xs text-destructive mt-1">
-              {result.error ?? "Unknown error"}
+            <div className="text-xs mt-2 p-2 rounded-md bg-destructive/10 border border-destructive/20">
+              <div className="font-semibold text-destructive flex items-center gap-1.5 mb-1">
+                <XCircle className="h-3.5 w-3.5" />
+                File rejected
+              </div>
+              <div className="text-destructive/80">
+                {result.error ?? "Unknown error"}
+              </div>
             </div>
           )}
         </div>

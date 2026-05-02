@@ -4,7 +4,9 @@ from app.models.budget_category import BudgetCategory
 from app.models.expense import Expense, ExpenseStatus
 from app.models.project import Project, ProjectHealth, ProjectStatus
 from app.models.subcontractor import (
+    ContractDocument,
     ContractStatus,
+    DocumentType,
     PaymentStatus,
     Subcontractor,
     SubcontractorContract,
@@ -22,7 +24,9 @@ from app.models.workforce import (
 __all__ = [
     "BudgetCategory",
     "BudgetItem",
+    "ContractDocument",
     "ContractStatus",
+    "DocumentType",
     "Expense",
     "ExpenseStatus",
     "PaymentStatus",

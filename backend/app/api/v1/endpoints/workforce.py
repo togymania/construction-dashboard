@@ -34,6 +34,10 @@ from app.schemas.workforce import (
     WorkforceKPIDailyPoint,
     WorkforceKPITopPosition,
     WorkforceKPIWeeklyBucket,
+    WorkforceDisciplinePoint,
+    WorkforceDisciplineTodaySummary,
+    WorkforceInsight,
+    WorkforceInsightsBundle,
     WorkforcePositionCreate,
     WorkforcePositionResponse,
     WorkforcePositionUpdate,
@@ -171,6 +175,198 @@ async def _recompute_snapshot_aggregates(db, snapshot: WorkforceSnapshot) -> Non
     )
     snapshot.subcontractor_present = sum(
         c.present for c in counts if cat_by_pos.get(c.position_id) == WorkforceCategory.SUBCONTRACTOR
+    )
+
+
+# ============================================================================
+# Discipline classification (Electrical / Mechanical / Civil)
+# ============================================================================
+
+_ELECTRICAL_KEYWORDS = (
+    "ELECTRICIAN", "CABLE", "WEAK CURRENT", "PANEL", "ELECTRIC",
+    "WIRING", "SWITCHGEAR", "TRANSFORMER", "LOW VOLTAGE", "HIGH VOLTAGE",
+    "LIGHTING", "ELEKTRIK", "KABLO",
+)
+
+_MECHANICAL_KEYWORDS = (
+    "HVAC", "PLUMBER", "PIPE", "FIRE LINE", "VENTILATION",
+    "MECHANICAL", "DUCT", "CHILLER", "AIR CONDITION", "INSULATION",
+    "TESISAT", "MEKANIK", "SIHHI", "BORU",
+)
+
+# Everything else that is DIRECT and not electrical/mechanical => civil
+_CIVIL_KEYWORDS = (
+    "FORMWORK", "REBAR", "CONCRETE", "MASON", "LABOR", "CARPENTER",
+    "STEEL", "SCAFFOLDING", "FINISHING", "PLASTERER", "PAINTER",
+    "TILER", "WATERPROOFING", "INSAAT", "KALIPCI", "DEMIRCI",
+    "BETONCU", "INCE ISLER", "ISKELE",
+)
+
+
+def classify_discipline(position_name: str) -> str:
+    """Classify a direct position name into electrical / mechanical / civil."""
+    upper = position_name.upper()
+    for kw in _ELECTRICAL_KEYWORDS:
+        if kw in upper:
+            return "electrical"
+    for kw in _MECHANICAL_KEYWORDS:
+        if kw in upper:
+            return "mechanical"
+    # Default direct positions to civil
+    return "civil"
+
+
+def _compute_discipline_for_counts(
+    counts: list[WorkforceCount], pos_map: dict[int, WorkforcePosition]
+) -> dict[str, int]:
+    """Return {electrical: N, mechanical: N, civil: N} from direct-only counts."""
+    result = {"electrical": 0, "mechanical": 0, "civil": 0}
+    for c in counts:
+        pos = pos_map.get(c.position_id)
+        if pos is None or pos.category != WorkforceCategory.DIRECT:
+            continue
+        disc = classify_discipline(pos.name)
+        result[disc] += c.present
+    return result
+
+
+# ============================================================================
+# AI Insights Rule Engine (v1 - deterministic, no LLM)
+# ============================================================================
+
+def _generate_insights(
+    today_direct: int,
+    today_indirect: int,
+    today_subcont: int,
+    prior_direct: int,
+    prior_indirect: int,
+    prior_subcont: int,
+    daily_trend: list[WorkforceKPIDailyPoint],
+    weekly: list[WorkforceKPIWeeklyBucket],
+    discipline_today: dict[str, int] | None = None,
+) -> WorkforceInsightsBundle:
+    """Generate human-readable insights from workforce data using rules."""
+    daily_insights: list[WorkforceInsight] = []
+    weekly_insights: list[WorkforceInsight] = []
+    monthly_insights: list[WorkforceInsight] = []
+
+    today_total = today_direct + today_indirect + today_subcont
+    prior_total = prior_direct + prior_indirect + prior_subcont
+
+    # --- Daily insights ---
+    if prior_total > 0:
+        delta_direct = today_direct - prior_direct
+        delta_subcont = today_subcont - prior_subcont
+        delta_total = today_total - prior_total
+
+        if delta_total > 0:
+            daily_insights.append(WorkforceInsight(
+                icon="📈", tone="positive",
+                text=f"Total workforce increased by +{delta_total} today ({today_total} total).",
+            ))
+        elif delta_total < 0:
+            daily_insights.append(WorkforceInsight(
+                icon="📉", tone="negative",
+                text=f"Total workforce decreased by {delta_total} today ({today_total} total).",
+            ))
+        else:
+            daily_insights.append(WorkforceInsight(
+                icon="➡️", tone="neutral",
+                text=f"Workforce is stable at {today_total} today.",
+            ))
+
+        if delta_direct > 0:
+            daily_insights.append(WorkforceInsight(
+                icon="🔨", tone="positive",
+                text=f"Direct workforce up +{delta_direct} ({today_direct} present).",
+            ))
+        elif delta_direct < -5:
+            daily_insights.append(WorkforceInsight(
+                icon="⚠️", tone="warning",
+                text=f"Direct workforce dropped by {delta_direct} to {today_direct}.",
+            ))
+
+        if prior_subcont > 0:
+            subcont_pct_prior = prior_subcont / prior_total * 100
+            subcont_pct_today = today_subcont / today_total * 100 if today_total > 0 else 0
+            if subcont_pct_today > subcont_pct_prior + 3:
+                daily_insights.append(WorkforceInsight(
+                    icon="📊", tone="warning",
+                    text=f"Subcontractor ratio rising ({subcont_pct_prior:.0f}% → {subcont_pct_today:.0f}%).",
+                ))
+
+    # Discipline insights (daily)
+    if discipline_today:
+        total_direct_disc = sum(discipline_today.values())
+        if total_direct_disc > 0:
+            max_disc = max(discipline_today, key=lambda k: discipline_today[k])
+            disc_labels = {"electrical": "Electrical", "mechanical": "Mechanical", "civil": "Civil"}
+            daily_insights.append(WorkforceInsight(
+                icon="🏗️", tone="neutral",
+                text=f"Largest direct discipline: {disc_labels[max_disc]} ({discipline_today[max_disc]} workers, {discipline_today[max_disc]/total_direct_disc*100:.0f}%).",
+            ))
+
+    # --- Weekly insights ---
+    if len(weekly) >= 2:
+        this_week = weekly[-1]
+        last_week = weekly[-2]
+        week_delta = round(this_week.avg_total_present - last_week.avg_total_present)
+        if week_delta > 0:
+            weekly_insights.append(WorkforceInsight(
+                icon="📈", tone="positive",
+                text=f"This week avg is +{week_delta} vs last week ({this_week.avg_total_present:.0f} avg).",
+            ))
+        elif week_delta < 0:
+            weekly_insights.append(WorkforceInsight(
+                icon="📉", tone="negative",
+                text=f"This week avg is {week_delta} vs last week ({this_week.avg_total_present:.0f} avg).",
+            ))
+
+        # Subcontractor ratio weekly
+        if last_week.avg_total_present > 0 and this_week.avg_total_present > 0:
+            sub_pct_last = last_week.avg_subcontractor / last_week.avg_total_present * 100
+            sub_pct_this = this_week.avg_subcontractor / this_week.avg_total_present * 100
+            if sub_pct_this > sub_pct_last + 3:
+                weekly_insights.append(WorkforceInsight(
+                    icon="🔄", tone="warning",
+                    text=f"Subcontractor ratio rising week-over-week ({sub_pct_last:.0f}% → {sub_pct_this:.0f}%).",
+                ))
+
+    # --- Monthly insights ---
+    if len(daily_trend) >= 7:
+        totals = [p.total_present for p in daily_trend]
+        avg_30 = sum(totals) / len(totals)
+        peak_val = max(totals)
+        peak_date = daily_trend[totals.index(peak_val)].snapshot_date
+
+        monthly_insights.append(WorkforceInsight(
+            icon="📊", tone="neutral",
+            text=f"30-day average workforce: {avg_30:.0f} people.",
+        ))
+        monthly_insights.append(WorkforceInsight(
+            icon="🏔️", tone="neutral",
+            text=f"Peak date: {peak_date} ({peak_val} workers).",
+        ))
+
+        # Trend detection (last 5 days)
+        if len(totals) >= 5:
+            last_5 = totals[-5:]
+            diffs = [last_5[i+1] - last_5[i] for i in range(len(last_5)-1)]
+            if all(d > 0 for d in diffs):
+                monthly_insights.append(WorkforceInsight(
+                    icon="🚀", tone="positive",
+                    text="Strong upward mobilization trend over last 5 days.",
+                ))
+            elif all(d < 0 for d in diffs):
+                monthly_insights.append(WorkforceInsight(
+                    icon="⚠️", tone="warning",
+                    text="Consistent demobilization trend over last 5 days.",
+                ))
+
+    return WorkforceInsightsBundle(
+        daily=daily_insights,
+        weekly=weekly_insights,
+        monthly=monthly_insights,
     )
 
 
@@ -502,6 +698,70 @@ async def workforce_kpis(project_id: int, db: DBSession, _user: CurrentUser):
         reverse=True,
     )[:8]
 
+    # Discipline breakdown for today's direct workforce
+    all_today_counts_flat: list[WorkforceCount] = []
+    pos_map_all: dict[int, WorkforcePosition] = {}
+    for s in today_snaps:
+        for c in s.counts:
+            all_today_counts_flat.append(c)
+            pos_map_all[c.position_id] = c.position
+
+    discipline_dict = _compute_discipline_for_counts(all_today_counts_flat, pos_map_all)
+    discipline_today_summary = WorkforceDisciplineTodaySummary(
+        electrical=discipline_dict["electrical"],
+        mechanical=discipline_dict["mechanical"],
+        civil=discipline_dict["civil"],
+        total_direct=today_direct,
+    )
+
+    # Discipline trend (last 30 days) - need per-day position-level data
+    discipline_trend: list[WorkforceDisciplinePoint] = []
+    if daily_trend:
+        # Fetch all snapshots with counts+positions for the 30-day window
+        disc_snaps_stmt = (
+            select(WorkforceSnapshot)
+            .where(
+                WorkforceSnapshot.project_id == project_id,
+                WorkforceSnapshot.snapshot_date >= cutoff_30,
+            )
+            .options(selectinload(WorkforceSnapshot.counts).selectinload(WorkforceCount.position))
+            .order_by(WorkforceSnapshot.snapshot_date.asc())
+        )
+        disc_snaps = (await db.execute(disc_snaps_stmt)).scalars().all()
+
+        # Group by date, compute discipline per date
+        from collections import defaultdict
+        date_counts: dict[date, list[tuple[WorkforceCount, WorkforcePosition]]] = defaultdict(list)
+        for snap in disc_snaps:
+            for c in snap.counts:
+                date_counts[snap.snapshot_date].append((c, c.position))
+
+        for d_date in sorted(date_counts.keys()):
+            day_disc = {"electrical": 0, "mechanical": 0, "civil": 0}
+            for c, p in date_counts[d_date]:
+                if p.category == WorkforceCategory.DIRECT:
+                    disc = classify_discipline(p.name)
+                    day_disc[disc] += c.present
+            discipline_trend.append(WorkforceDisciplinePoint(
+                snapshot_date=d_date,
+                electrical=day_disc["electrical"],
+                mechanical=day_disc["mechanical"],
+                civil=day_disc["civil"],
+            ))
+
+    # Generate AI insights
+    insights = _generate_insights(
+        today_direct=today_direct,
+        today_indirect=today_indirect,
+        today_subcont=today_subcont,
+        prior_direct=prior_direct,
+        prior_indirect=prior_indirect,
+        prior_subcont=prior_subcont,
+        daily_trend=daily_trend,
+        weekly=weekly,
+        discipline_today=discipline_dict,
+    )
+
     return WorkforceKPIBundle(
         project_id=project_id,
         as_of_date=latest_date,
@@ -511,111 +771,9 @@ async def workforce_kpis(project_id: int, db: DBSession, _user: CurrentUser):
         daily_trend=daily_trend,
         weekly_buckets=weekly,
         top_positions=top_positions,
-    )
-    yesterday = (await db.execute(yest_stmt)).scalar_one_or_none()
-
-    def _delta(today_val: int, yest_val: int) -> tuple[int, float | None]:
-        d = today_val - yest_val
-        pct = (d / yest_val * 100.0) if yest_val > 0 else None
-        return d, pct
-
-    # Position counts per category (today)
-    pos_count_by_cat = {WorkforceCategory.DIRECT: 0, WorkforceCategory.INDIRECT: 0, WorkforceCategory.SUBCONTRACTOR: 0}
-    for c in latest.counts:
-        pos_count_by_cat[c.position.category] += 1
-
-    by_cat: list[WorkforceKPICategoryToday] = []
-    for cat, today_present, yest_present in (
-        (WorkforceCategory.DIRECT, latest.direct_present, yesterday.direct_present if yesterday else 0),
-        (WorkforceCategory.INDIRECT, latest.indirect_present, yesterday.indirect_present if yesterday else 0),
-        (WorkforceCategory.SUBCONTRACTOR, latest.subcontractor_present, yesterday.subcontractor_present if yesterday else 0),
-    ):
-        d, pct = _delta(today_present, yest_present)
-        by_cat.append(WorkforceKPICategoryToday(
-            category=cat,
-            present_today=today_present,
-            delta_vs_yesterday=d,
-            delta_pct=pct,
-            position_count=pos_count_by_cat[cat],
-        ))
-
-    # 30-day trend
-    cutoff_30 = today_date - timedelta(days=29)
-    trend_stmt = (
-        select(WorkforceSnapshot)
-        .where(
-            WorkforceSnapshot.project_id == project_id,
-            WorkforceSnapshot.snapshot_date >= cutoff_30,
-        )
-        .order_by(WorkforceSnapshot.snapshot_date.asc())
-    )
-    trend_rows = (await db.execute(trend_stmt)).scalars().all()
-    daily_trend = [
-        WorkforceKPIDailyPoint(
-            snapshot_date=s.snapshot_date,
-            direct_present=s.direct_present,
-            indirect_present=s.indirect_present,
-            subcontractor_present=s.subcontractor_present,
-            total_present=s.total_present,
-        )
-        for s in trend_rows
-    ]
-
-    # 8-week buckets
-    cutoff_56 = today_date - timedelta(weeks=8) + timedelta(days=1)
-    week_stmt = (
-        select(WorkforceSnapshot)
-        .where(
-            WorkforceSnapshot.project_id == project_id,
-            WorkforceSnapshot.snapshot_date >= cutoff_56,
-        )
-        .order_by(WorkforceSnapshot.snapshot_date.asc())
-    )
-    week_rows = (await db.execute(week_stmt)).scalars().all()
-
-    # Group by Monday-anchored week
-    buckets: dict[date, list[WorkforceSnapshot]] = {}
-    for s in week_rows:
-        # Monday of that week
-        monday = s.snapshot_date - timedelta(days=s.snapshot_date.weekday())
-        buckets.setdefault(monday, []).append(s)
-
-    weekly: list[WorkforceKPIWeeklyBucket] = []
-    for monday in sorted(buckets.keys()):
-        snaps = buckets[monday]
-        n = len(snaps)
-        weekly.append(WorkforceKPIWeeklyBucket(
-            week_start=monday,
-            avg_total_present=sum(s.total_present for s in snaps) / n,
-            avg_direct=sum(s.direct_present for s in snaps) / n,
-            avg_indirect=sum(s.indirect_present for s in snaps) / n,
-            avg_subcontractor=sum(s.subcontractor_present for s in snaps) / n,
-            days_recorded=n,
-        ))
-
-    # Top positions today
-    top_positions = sorted(
-        [
-            WorkforceKPITopPosition(
-                position_id=c.position.id,
-                position_name=c.position.name,
-                category=c.position.category,
-                present=c.present,
-            )
-            for c in latest.counts
-        ],
-        key=lambda x: x.present,
-        reverse=True,
-    )[:8]
-
-    return WorkforceKPIBundle(
-        project_id=project_id,
-        as_of_date=today_date,
-        snapshot_count=snapshot_count,
-        by_category_today=by_cat,
-        daily_trend=daily_trend,
-        weekly_buckets=weekly,
-        top_positions=top_positions,
+        discipline_today=discipline_today_summary,
+        discipline_trend=discipline_trend,
+        insights=insights,
     )
 
 
@@ -814,6 +972,61 @@ async def _import_single_file(
             source_filename=filename,
             success=False,
             error="No data rows extracted from cover page - is this a valid puantaj file?",
+            rows_imported=0, rows_skipped=0, positions_created=0,
+        )
+
+    # Phase 5: Section validation - ensure all 3 sections were found
+    section_labels = {st.label for st in parsed.section_totals}
+    missing_sections = []
+    if "PRODUCTIVE LABOUR" not in section_labels:
+        missing_sections.append("Section A (PRODUCTIVE)")
+    if "UNPRODUCTIVE LABOUR" not in section_labels:
+        missing_sections.append("Section B (UNPRODUCTIVE)")
+    if "TOTAL SUBCONTRACTOR" not in section_labels:
+        missing_sections.append("Section C (SUBCONTRACTOR)")
+    if missing_sections:
+        return WorkforceImportResponse(
+            project_id=project_id,
+            snapshot_date=parsed.snapshot_date,
+            company_label=parsed.company_label,
+            source_filename=filename,
+            success=False,
+            error=f"Missing sections: {', '.join(missing_sections)}. File does not match expected cover-page format.",
+            rows_imported=0, rows_skipped=0, positions_created=0,
+        )
+
+    # Phase 5: Strict GRAND TOTAL mismatch - REJECT instead of just warning
+    if parsed.grand_total is not None:
+        gt = parsed.grand_total
+        parsed_present_sum = sum(r.present for r in parsed.rows)
+        if gt.present != parsed_present_sum:
+            return WorkforceImportResponse(
+                project_id=project_id,
+                snapshot_date=parsed.snapshot_date,
+                company_label=parsed.company_label,
+                source_filename=filename,
+                success=False,
+                error=(
+                    f"GRAND TOTAL mismatch: Excel reports {gt.present} present "
+                    f"but parsed rows sum to {parsed_present_sum}. "
+                    f"File rejected - verify data integrity."
+                ),
+                rows_imported=0, rows_skipped=0, positions_created=0,
+            )
+
+    # Phase 5: Row format validation - check for rows with all-zero or negative values
+    malformed_rows = []
+    for idx, prow in enumerate(parsed.rows):
+        if prow.general_staff < 0 or prow.absent < 0 or prow.leave_sick < 0:
+            malformed_rows.append(f"{prow.position_name} (negative value)")
+    if malformed_rows:
+        return WorkforceImportResponse(
+            project_id=project_id,
+            snapshot_date=parsed.snapshot_date,
+            company_label=parsed.company_label,
+            source_filename=filename,
+            success=False,
+            error=f"Malformed rows detected: {'; '.join(malformed_rows[:5])}",
             rows_imported=0, rows_skipped=0, positions_created=0,
         )
 

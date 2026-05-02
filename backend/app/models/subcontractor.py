@@ -298,3 +298,70 @@ class SubcontractorPayment(Base):
             f"num={self.payment_number}, amount={self.amount}, "
             f"status={self.status.value!r})>"
         )
+
+
+# ---------- Document Type ----------
+
+class DocumentType(str, PyEnum):
+    """Type of contract document."""
+
+    CONTRACT = "CONTRACT"
+    INVOICE = "INVOICE"
+    ADDENDUM = "ADDENDUM"
+    REPORT = "REPORT"
+
+
+# ---------- Contract Document ----------
+
+class ContractDocument(Base):
+    """Document attached to a subcontractor contract."""
+
+    __tablename__ = "contract_documents"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    contract_id: Mapped[int] = mapped_column(
+        ForeignKey("subcontractor_contracts.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    file_name: Mapped[str] = mapped_column(String(500), nullable=False)
+    file_path: Mapped[str] = mapped_column(String(1000), nullable=False)
+    file_size: Mapped[int] = mapped_column(Integer, nullable=False)
+    mime_type: Mapped[str] = mapped_column(String(255), nullable=False)
+    file_type: Mapped[DocumentType] = mapped_column(
+        Enum(
+            DocumentType,
+            name="document_type",
+            values_callable=_enum_values,
+        ),
+        default=DocumentType.CONTRACT,
+        nullable=False,
+        index=True,
+    )
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    extracted_data: Mapped[str | None] = mapped_column(
+        Text, nullable=True  # JSON stored as text
+    )
+    uploaded_by: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    contract = relationship("SubcontractorContract", lazy="selectin")
+    uploader = relationship("User", foreign_keys=[uploaded_by], lazy="selectin")
+
+    def __repr__(self) -> str:
+        return (
+            f"<ContractDocument(id={self.id}, contract_id={self.contract_id}, "
+            f"file_name={self.file_name!r}, type={self.file_type.value!r})>"
+        )

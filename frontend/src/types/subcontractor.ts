@@ -211,3 +211,95 @@ export interface SubcontractorKPIs {
   payments_by_status: Record<string, string>;  // string because backend Decimal
   monthly_payments: MonthlyPaymentPoint[];
 }
+
+// ---------- Financial Intelligence (Phase 1) ----------
+
+export interface ContractForecast {
+  contract_id: number;
+  contract_amount: string;
+  total_paid: string;
+  remaining_amount: string;
+  payment_progress_pct: number;
+  burn_rate_per_day: string;
+  avg_daily_payment: string;
+  estimated_completion_date: string | null;
+  next_30_days_projected: string;
+  days_elapsed: number;
+  days_remaining: number;
+}
+
+export interface MonthlyCashFlowPoint {
+  month: string;
+  paid_amount: string;
+  approved_amount: string;
+  pending_amount: string;
+}
+
+export interface PaymentDiscipline {
+  subcontractor_id: number;
+  score: number;
+  grade: string;
+  overdue_payment_pct: number;
+  rejected_payment_pct: number;
+  avg_approval_days: number;
+  total_payments_evaluated: number;
+}
+
+// ---------- Risk & Alert (Phase 2) ----------
+
+export interface ContractAlert {
+  level: "critical" | "warning" | "info";
+  message: string;
+  category: "budget" | "timeline" | "payment";
+}
+
+export interface RiskScore {
+  subcontractor_id: number;
+  score: number;
+  level: "critical" | "warning" | "healthy";
+  alerts: ContractAlert[];
+  summary: string;
+}
+
+// ---------- Documents (Phase 3) ----------
+
+export type DocumentType = "CONTRACT" | "INVOICE" | "ADDENDUM" | "REPORT";
+
+export interface ContractDocument {
+  id: number;
+  contract_id: number;
+  file_name: string;
+  file_size: number;
+  mime_type: string;
+  file_type: DocumentType;
+  version: number;
+  extracted_data: Record<string, unknown> | null;
+  uploaded_by: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ExtractedContractData {
+  contract_amount: string | null;
+  start_date: string | null;
+  end_date: string | null;
+  company_names: string[];
+  payment_terms: string[];
+  confidence: number;
+}
+
+// ---------- AI Insights (Phase 4) ----------
+
+export interface AIInsight {
+  type: "commentary" | "prediction" | "alert";
+  severity: "info" | "warning" | "critical";
+  message: string;
+  metric_value: number | null;
+  generated_at: string;
+}
+
+export interface SubcontractorInsights {
+  subcontractor_id: number;
+  insights: AIInsight[];
+  overall_health: "good" | "at_risk" | "critical";
+}

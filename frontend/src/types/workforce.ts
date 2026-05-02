@@ -139,6 +139,34 @@ export interface WorkforceKPITopPosition {
   present: number;
 }
 
+// ---------- Discipline breakdown ----------
+export interface WorkforceDisciplinePoint {
+  snapshot_date: string;
+  electrical: number;
+  mechanical: number;
+  civil: number;
+}
+
+export interface WorkforceDisciplineTodaySummary {
+  electrical: number;
+  mechanical: number;
+  civil: number;
+  total_direct: number;
+}
+
+// ---------- AI Insights ----------
+export interface WorkforceInsight {
+  icon: string;
+  text: string;
+  tone: "positive" | "negative" | "neutral" | "warning";
+}
+
+export interface WorkforceInsightsBundle {
+  daily: WorkforceInsight[];
+  weekly: WorkforceInsight[];
+  monthly: WorkforceInsight[];
+}
+
 export interface WorkforceKPIBundle {
   project_id: number;
   as_of_date: string | null;
@@ -148,6 +176,9 @@ export interface WorkforceKPIBundle {
   daily_trend: WorkforceKPIDailyPoint[];
   weekly_buckets: WorkforceKPIWeeklyBucket[];
   top_positions: WorkforceKPITopPosition[];
+  discipline_today: WorkforceDisciplineTodaySummary | null;
+  discipline_trend: WorkforceDisciplinePoint[];
+  insights: WorkforceInsightsBundle | null;
 }
 
 // ---------- Excel import ----------

@@ -314,3 +314,129 @@ class SubcontractorKPIs(BaseModel):
     contracts_by_status: dict[str, int] = {}     # {"draft": 2, "active": 5, ...}
     payments_by_status: dict[str, Decimal] = {}  # {"pending": 100, "paid": 500, ...}
     monthly_payments: list[MonthlyPaymentPoint] = []  # last 6 months
+
+
+# =============================================================================
+# Financial Intelligence schemas (Phase 1)
+# =============================================================================
+
+class ContractForecast(BaseModel):
+    """Financial forecast for a single contract."""
+
+    contract_id: int
+    contract_amount: Decimal
+    total_paid: Decimal
+    remaining_amount: Decimal
+    payment_progress_pct: float
+    burn_rate_per_day: Decimal  # ₽/day based on elapsed time
+    avg_daily_payment: Decimal  # ₽/day based on last 30 days
+    estimated_completion_date: str | None = None  # ISO date or null
+    next_30_days_projected: Decimal  # expected spending in next 30 days
+    days_elapsed: int
+    days_remaining: int
+
+
+class MonthlyCashFlowPoint(BaseModel):
+    """Stacked monthly cash flow entry for a subcontractor."""
+
+    month: str  # YYYY-MM
+    paid_amount: Decimal
+    approved_amount: Decimal
+    pending_amount: Decimal
+
+
+class PaymentDiscipline(BaseModel):
+    """Payment discipline score (0-100) for a subcontractor."""
+
+    subcontractor_id: int
+    score: int  # 0-100
+    grade: str  # A / B / C / D / F
+    overdue_payment_pct: float
+    rejected_payment_pct: float
+    avg_approval_days: float
+    total_payments_evaluated: int
+
+
+# =============================================================================
+# Risk & Alert schemas (Phase 2)
+# =============================================================================
+
+class ContractAlert(BaseModel):
+    """Single alert/risk flag for a contract."""
+
+    level: str  # "critical" | "warning" | "info"
+    message: str
+    category: str  # "budget" | "timeline" | "payment"
+
+
+class RiskScore(BaseModel):
+    """Aggregate risk score for a subcontractor."""
+
+    subcontractor_id: int
+    score: int  # 0 (no risk) → 100 (critical)
+    level: str  # "critical" | "warning" | "healthy"
+    alerts: list[ContractAlert] = []
+    summary: str
+
+
+# =============================================================================
+# Document schemas (Phase 3)
+# =============================================================================
+
+class DocumentType(str, Enum):
+    CONTRACT = "CONTRACT"
+    INVOICE = "INVOICE"
+    ADDENDUM = "ADDENDUM"
+    REPORT = "REPORT"
+
+
+class ContractDocumentResponse(BaseModel):
+    """Contract document metadata returned from the API."""
+
+    id: int
+    contract_id: int
+    file_name: str
+    file_size: int
+    mime_type: str
+    file_type: DocumentType
+    version: int
+    extracted_data: dict | None = None
+    uploaded_by: int
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ExtractedContractData(BaseModel):
+    """Data extracted from a contract document via parsing."""
+
+    contract_amount: Decimal | None = None
+    start_date: str | None = None
+    end_date: str | None = None
+    company_names: list[str] = []
+    payment_terms: list[str] = []
+    confidence: float = 0.0  # 0-1
+
+
+# =============================================================================
+# AI Insights schemas (Phase 4)
+# =============================================================================
+
+class AIInsight(BaseModel):
+    """Single AI-generated insight or prediction."""
+
+    type: str  # "commentary" | "prediction" | "alert"
+    severity: str  # "info" | "warning" | "critical"
+    message: str
+    metric_value: float | None = None
+    generated_at: datetime
+
+
+class SubcontractorInsights(BaseModel):
+    """Collection of AI insights for a subcontractor."""
+
+    subcontractor_id: int
+    insights: list[AIInsight] = []
+    overall_health: str  # "good" | "at_risk" | "critical"
+

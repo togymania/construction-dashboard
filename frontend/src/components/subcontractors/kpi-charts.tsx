@@ -163,14 +163,18 @@ export function KpiCharts({ kpis }: Props) {
                   ))}
                 </Pie>
                 <Tooltip
-                  formatter={(v: unknown) =>
-                    typeof v === "number" ? formatRubCompact(v) : String(v)
-                  }
+                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                  formatter={((v: unknown, name?: string) =>
+                    typeof v === "number"
+                      ? [formatRubCompact(v), name ?? ""]
+                      : [String(v), name ?? ""]
+                  ) as any}
+                  contentStyle={{ borderRadius: 8, fontSize: 12 }}
                 />
                 <Legend
-                  verticalAlign="bottom"
+                  verticalAlign="top"
                   iconType="circle"
-                  wrapperStyle={{ fontSize: 12, paddingTop: 8 }}
+                  wrapperStyle={{ fontSize: 12, paddingBottom: 8 }}
                 />
               </PieChart>
             </ResponsiveContainer>
@@ -202,13 +206,17 @@ export function KpiCharts({ kpis }: Props) {
                   width={120}
                 />
                 <Tooltip
-                  formatter={(v: unknown) =>
-                    typeof v === "number" ? formatRubCompact(v) : String(v)
-                  }
+                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                  formatter={((v: unknown, name?: string) =>
+                    typeof v === "number"
+                      ? [formatRubCompact(v), "Total Contract Value"]
+                      : [String(v), name ?? ""]
+                  ) as any}
                   labelFormatter={(label, payload) => {
                     const p = payload?.[0]?.payload as { fullName?: string } | undefined;
                     return p?.fullName ?? label;
                   }}
+                  contentStyle={{ borderRadius: 8, fontSize: 12 }}
                 />
                 <Bar dataKey="value" fill="#3b82f6" radius={[0, 4, 4, 0]} />
               </BarChart>
@@ -242,8 +250,11 @@ export function KpiCharts({ kpis }: Props) {
                 />
                 <Tooltip
                   formatter={(v: unknown) =>
-                    typeof v === "number" ? formatRubCompact(v) : String(v)
+                    typeof v === "number"
+                      ? [formatRubCompact(v), "Paid Amount"]
+                      : [String(v), "Amount"]
                   }
+                  contentStyle={{ borderRadius: 8, fontSize: 12 }}
                 />
                 <Area
                   type="monotone"
@@ -296,11 +307,13 @@ export function KpiCharts({ kpis }: Props) {
                     />
                   ))}
                 </Pie>
-                <Tooltip />
+                <Tooltip
+                  contentStyle={{ borderRadius: 8, fontSize: 12 }}
+                />
                 <Legend
-                  verticalAlign="bottom"
+                  verticalAlign="top"
                   iconType="circle"
-                  wrapperStyle={{ fontSize: 12, paddingTop: 8 }}
+                  wrapperStyle={{ fontSize: 12, paddingBottom: 8 }}
                 />
               </PieChart>
             </ResponsiveContainer>

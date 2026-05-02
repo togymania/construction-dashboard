@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, status
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
@@ -12,6 +12,7 @@ from sqlalchemy.orm import selectinload
 from app.api.deps import CurrentUser, DBSession, require_roles
 from app.models.project import Project
 from app.models.subcontractor import (
+    ContractDocument,
     ContractStatus,
     PaymentStatus,
     Subcontractor,
@@ -21,14 +22,22 @@ from app.models.subcontractor import (
 )
 from app.models.user import User, UserRole
 from app.schemas.subcontractor import (
+    AIInsight,
+    ContractAlert,
     ContractCreate,
+    ContractDocumentResponse,
+    ContractForecast,
     ContractResponse,
     ContractUpdate,
+    MonthlyCashFlowPoint,
     MonthlyPaymentPoint,
     PaymentCreate,
+    PaymentDiscipline,
     PaymentResponse,
     PaymentUpdate,
+    RiskScore,
     SubcontractorCreate,
+    SubcontractorInsights,
     SubcontractorKPIs,
     SubcontractorListItem,
     SubcontractorResponse,
@@ -923,3 +932,630 @@ async def list_contracts_for_project(
         })
         for c in contracts
     ]
+
+
+# ============================================================================
+# Phase 1: Financial Intelligence
+# ============================================================================
+
+@router.get(
+    "/subcontractors/{sub_id}/contracts/{contract_id}/forecast",
+    response_model=ContractForecast,
+    summary="Financial forecast for a contract",
+)
+async def get_contract_forecast(
+    sub_id: int, contract_id: int, user: CurrentUser, db: DBSession,
+) -> ContractForecast:
+    await _ensure_subcontractor(db, sub_id)
+    contract = await _ensure_contract_under_sub(db, sub_id, contract_id)
+    today = _today()
+
+    total_paid = Decimal((await db.execute(
+        select(func.coalesce(func.sum(SubcontractorPayment.amount), 0)).where(
+            SubcontractorPayment.contract_id == contract_id,
+            SubcontractorPayment.status == PaymentStatus.PAID,
+        )
+    )).scalar_one())
+
+    remaining = contract.contract_amount - total_paid
+    progress = float(total_paid / contract.contract_amount * 100) if contract.contract_amount > 0 else 0.0
+
+    days_elapsed = max((today - contract.start_date).days, 1)
+    days_remaining = max((contract.end_date - today).days, 0)
+
+    burn_rate = total_paid / days_elapsed if days_elapsed > 0 else Decimal("0")
+
+    # Last 30 days paid
+    from datetime import timedelta
+    cutoff = today - timedelta(days=30)
+    paid_30d = Decimal((await db.execute(
+        select(func.coalesce(func.sum(SubcontractorPayment.amount), 0)).where(
+            SubcontractorPayment.contract_id == contract_id,
+            SubcontractorPayment.status == PaymentStatus.PAID,
+            SubcontractorPayment.payment_date >= cutoff,
+        )
+    )).scalar_one())
+
+    avg_daily = paid_30d / 30 if paid_30d > 0 else Decimal("0")
+    est_date = None
+    if avg_daily > 0 and remaining > 0:
+        est_days = int(remaining / avg_daily)
+        est_date = (today + timedelta(days=est_days)).isoformat()
+
+    next_30 = avg_daily * 30
+
+    return ContractForecast(
+        contract_id=contract_id,
+        contract_amount=contract.contract_amount,
+        total_paid=total_paid,
+        remaining_amount=remaining,
+        payment_progress_pct=round(progress, 2),
+        burn_rate_per_day=round(burn_rate, 2),
+        avg_daily_payment=round(avg_daily, 2),
+        estimated_completion_date=est_date,
+        next_30_days_projected=round(next_30, 2),
+        days_elapsed=days_elapsed,
+        days_remaining=days_remaining,
+    )
+
+
+@router.get(
+    "/subcontractors/{sub_id}/payment-discipline",
+    response_model=PaymentDiscipline,
+    summary="Payment discipline score for a subcontractor",
+)
+async def get_payment_discipline(
+    sub_id: int, user: CurrentUser, db: DBSession,
+) -> PaymentDiscipline:
+    await _ensure_subcontractor(db, sub_id)
+    today = _today()
+
+    # Get all payments for this subcontractor's contracts
+    contract_ids_stmt = select(SubcontractorContract.id).where(
+        SubcontractorContract.subcontractor_id == sub_id
+    )
+    payments = list((await db.execute(
+        select(SubcontractorPayment).where(
+            SubcontractorPayment.contract_id.in_(contract_ids_stmt)
+        )
+    )).scalars().all())
+
+    total = len(payments)
+    if total == 0:
+        return PaymentDiscipline(
+            subcontractor_id=sub_id, score=100, grade="A",
+            overdue_payment_pct=0.0, rejected_payment_pct=0.0,
+            avg_approval_days=0.0, total_payments_evaluated=0,
+        )
+
+    # Overdue: due_date < today AND status != PAID
+    overdue = sum(
+        1 for p in payments
+        if p.due_date and p.due_date < today and p.status != PaymentStatus.PAID
+    )
+    overdue_pct = (overdue / total) * 100
+
+    # Rejected
+    rejected = sum(1 for p in payments if p.status == PaymentStatus.REJECTED)
+    rejected_pct = (rejected / total) * 100
+
+    # Average approval time
+    approval_times = []
+    for p in payments:
+        if p.approved_at and p.created_at:
+            delta = (p.approved_at - p.created_at).total_seconds() / 86400
+            approval_times.append(delta)
+    avg_approval = sum(approval_times) / len(approval_times) if approval_times else 0.0
+
+    # Score: 100 minus penalties
+    penalty_overdue = min(40, overdue_pct * 0.4)
+    penalty_rejected = min(30, rejected_pct * 0.3)
+    penalty_slow = min(30, max(0, (avg_approval - 3) * 5))  # 3 days baseline
+    score = max(0, int(100 - penalty_overdue - penalty_rejected - penalty_slow))
+
+    grades = [(90, "A"), (75, "B"), (60, "C"), (40, "D"), (0, "F")]
+    grade = next(g for threshold, g in grades if score >= threshold)
+
+    return PaymentDiscipline(
+        subcontractor_id=sub_id,
+        score=score,
+        grade=grade,
+        overdue_payment_pct=round(overdue_pct, 1),
+        rejected_payment_pct=round(rejected_pct, 1),
+        avg_approval_days=round(avg_approval, 1),
+        total_payments_evaluated=total,
+    )
+
+
+@router.get(
+    "/subcontractors/{sub_id}/cashflow",
+    response_model=list[MonthlyCashFlowPoint],
+    summary="Monthly cash flow breakdown for a subcontractor",
+)
+async def get_cashflow(
+    sub_id: int, user: CurrentUser, db: DBSession,
+) -> list[MonthlyCashFlowPoint]:
+    await _ensure_subcontractor(db, sub_id)
+
+    contract_ids_stmt = select(SubcontractorContract.id).where(
+        SubcontractorContract.subcontractor_id == sub_id
+    )
+
+    # Paid by month
+    paid_rows = (await db.execute(
+        select(
+            func.to_char(func.date_trunc("month", SubcontractorPayment.payment_date), "YYYY-MM").label("month"),
+            func.coalesce(func.sum(SubcontractorPayment.amount), 0).label("amount"),
+        )
+        .where(
+            SubcontractorPayment.contract_id.in_(contract_ids_stmt),
+            SubcontractorPayment.status == PaymentStatus.PAID,
+        )
+        .group_by("month").order_by("month")
+    )).all()
+
+    approved_rows = (await db.execute(
+        select(
+            func.to_char(func.date_trunc("month", SubcontractorPayment.payment_date), "YYYY-MM").label("month"),
+            func.coalesce(func.sum(SubcontractorPayment.amount), 0).label("amount"),
+        )
+        .where(
+            SubcontractorPayment.contract_id.in_(contract_ids_stmt),
+            SubcontractorPayment.status == PaymentStatus.APPROVED,
+        )
+        .group_by("month").order_by("month")
+    )).all()
+
+    pending_rows = (await db.execute(
+        select(
+            func.to_char(func.date_trunc("month", SubcontractorPayment.payment_date), "YYYY-MM").label("month"),
+            func.coalesce(func.sum(SubcontractorPayment.amount), 0).label("amount"),
+        )
+        .where(
+            SubcontractorPayment.contract_id.in_(contract_ids_stmt),
+            SubcontractorPayment.status == PaymentStatus.PENDING,
+        )
+        .group_by("month").order_by("month")
+    )).all()
+
+    # Merge into single dict
+    months: dict[str, dict[str, Decimal]] = {}
+    for m, amt in paid_rows:
+        months.setdefault(str(m), {"paid": Decimal("0"), "approved": Decimal("0"), "pending": Decimal("0")})
+        months[str(m)]["paid"] = Decimal(amt or 0)
+    for m, amt in approved_rows:
+        months.setdefault(str(m), {"paid": Decimal("0"), "approved": Decimal("0"), "pending": Decimal("0")})
+        months[str(m)]["approved"] = Decimal(amt or 0)
+    for m, amt in pending_rows:
+        months.setdefault(str(m), {"paid": Decimal("0"), "approved": Decimal("0"), "pending": Decimal("0")})
+        months[str(m)]["pending"] = Decimal(amt or 0)
+
+    result = sorted(months.items())[-12:]  # last 12 months
+    return [
+        MonthlyCashFlowPoint(
+            month=m,
+            paid_amount=d["paid"],
+            approved_amount=d["approved"],
+            pending_amount=d["pending"],
+        )
+        for m, d in result
+    ]
+
+
+# ============================================================================
+# Phase 2: Risk & Alert System
+# ============================================================================
+
+@router.get(
+    "/subcontractors/{sub_id}/contracts/{contract_id}/alerts",
+    response_model=list[ContractAlert],
+    summary="Risk alerts for a specific contract",
+)
+async def get_contract_alerts(
+    sub_id: int, contract_id: int, user: CurrentUser, db: DBSession,
+) -> list[ContractAlert]:
+    await _ensure_subcontractor(db, sub_id)
+    contract = await _ensure_contract_under_sub(db, sub_id, contract_id)
+    today = _today()
+
+    alerts: list[ContractAlert] = []
+
+    # Calculate paid
+    total_paid = Decimal((await db.execute(
+        select(func.coalesce(func.sum(SubcontractorPayment.amount), 0)).where(
+            SubcontractorPayment.contract_id == contract_id,
+            SubcontractorPayment.status == PaymentStatus.PAID,
+        )
+    )).scalar_one())
+
+    # 1. Over-budget
+    if total_paid > contract.contract_amount:
+        over = total_paid - contract.contract_amount
+        alerts.append(ContractAlert(
+            level="critical", category="budget",
+            message=f"Over-budget by {over:,.0f} ₽ (paid {total_paid:,.0f} vs contract {contract.contract_amount:,.0f})",
+        ))
+
+    # 2. Overdue payments
+    overdue_count = (await db.execute(
+        select(func.count(SubcontractorPayment.id)).where(
+            SubcontractorPayment.contract_id == contract_id,
+            SubcontractorPayment.due_date < today,
+            SubcontractorPayment.status.in_([PaymentStatus.PENDING, PaymentStatus.APPROVED]),
+        )
+    )).scalar_one()
+    if overdue_count > 0:
+        alerts.append(ContractAlert(
+            level="critical", category="payment",
+            message=f"{overdue_count} overdue payment{'s' if overdue_count > 1 else ''}",
+        ))
+
+    # 3. Low progress + high payment
+    if contract.contract_amount > 0:
+        paid_pct = float(total_paid / contract.contract_amount * 100)
+        duration = max((contract.end_date - contract.start_date).days, 1)
+        elapsed_pct = float((today - contract.start_date).days / duration * 100)
+        if paid_pct > 70 and elapsed_pct < 50:
+            alerts.append(ContractAlert(
+                level="warning", category="budget",
+                message=f"High payment ({paid_pct:.0f}%) but only {elapsed_pct:.0f}% of time elapsed",
+            ))
+
+    # 4. Nearing end date
+    days_until_end = (contract.end_date - today).days
+    if 0 < days_until_end < 14 and contract.status == ContractStatus.ACTIVE:
+        alerts.append(ContractAlert(
+            level="warning", category="timeline",
+            message=f"Contract ends in {days_until_end} day{'s' if days_until_end > 1 else ''}",
+        ))
+
+    # 5. Already overdue
+    if contract.status == ContractStatus.ACTIVE and contract.end_date < today:
+        overdue_days = (today - contract.end_date).days
+        alerts.append(ContractAlert(
+            level="critical", category="timeline",
+            message=f"Contract is {overdue_days} day{'s' if overdue_days > 1 else ''} overdue",
+        ))
+
+    return alerts
+
+
+@router.get(
+    "/subcontractors/{sub_id}/risk-score",
+    response_model=RiskScore,
+    summary="Aggregate risk score for a subcontractor",
+)
+async def get_risk_score(
+    sub_id: int, user: CurrentUser, db: DBSession,
+) -> RiskScore:
+    sub = await _ensure_subcontractor(db, sub_id)
+    today = _today()
+
+    contracts = list((await db.execute(
+        select(SubcontractorContract).where(
+            SubcontractorContract.subcontractor_id == sub_id,
+            SubcontractorContract.status == ContractStatus.ACTIVE,
+        )
+    )).scalars().all())
+
+    all_alerts: list[ContractAlert] = []
+    contract_scores: list[int] = []
+
+    for c in contracts:
+        score = 0
+        total_paid = Decimal((await db.execute(
+            select(func.coalesce(func.sum(SubcontractorPayment.amount), 0)).where(
+                SubcontractorPayment.contract_id == c.id,
+                SubcontractorPayment.status == PaymentStatus.PAID,
+            )
+        )).scalar_one())
+
+        # Over-budget: +30
+        if total_paid > c.contract_amount:
+            score += 30
+            all_alerts.append(ContractAlert(
+                level="critical", category="budget",
+                message=f"Contract #{c.id}: Over-budget",
+            ))
+
+        # Overdue payments: +20
+        overdue_count = (await db.execute(
+            select(func.count(SubcontractorPayment.id)).where(
+                SubcontractorPayment.contract_id == c.id,
+                SubcontractorPayment.due_date < today,
+                SubcontractorPayment.status.in_([PaymentStatus.PENDING, PaymentStatus.APPROVED]),
+            )
+        )).scalar_one()
+        if overdue_count > 0:
+            score += min(20, overdue_count * 7)
+            all_alerts.append(ContractAlert(
+                level="critical", category="payment",
+                message=f"Contract #{c.id}: {overdue_count} overdue payment{'s' if overdue_count > 1 else ''}",
+            ))
+
+        # Nearing end
+        days_until = (c.end_date - today).days
+        if 0 < days_until < 14:
+            score += 15
+            all_alerts.append(ContractAlert(
+                level="warning", category="timeline",
+                message=f"Contract #{c.id} ends in {days_until} days",
+            ))
+        elif days_until <= 0:
+            score += 25
+            all_alerts.append(ContractAlert(
+                level="critical", category="timeline",
+                message=f"Contract #{c.id} is overdue by {abs(days_until)} days",
+            ))
+
+        # High spend ratio
+        if c.contract_amount > 0:
+            paid_pct = float(total_paid / c.contract_amount * 100)
+            duration = max((c.end_date - c.start_date).days, 1)
+            elapsed_pct = float((today - c.start_date).days / duration * 100)
+            if paid_pct > 70 and elapsed_pct < 50:
+                score += 10
+                all_alerts.append(ContractAlert(
+                    level="warning", category="budget",
+                    message=f"Contract #{c.id}: High spend ({paid_pct:.0f}%) vs time ({elapsed_pct:.0f}%)",
+                ))
+
+        contract_scores.append(min(100, score))
+
+    agg_score = int(sum(contract_scores) / len(contract_scores)) if contract_scores else 0
+    agg_score = min(100, agg_score)
+
+    level = "critical" if agg_score >= 60 else "warning" if agg_score >= 30 else "healthy"
+    summary = (
+        f"{sub.name}: {len(contracts)} active contracts, "
+        f"risk score {agg_score}/100 ({level}), "
+        f"{len(all_alerts)} alert{'s' if len(all_alerts) != 1 else ''}"
+    )
+
+    return RiskScore(
+        subcontractor_id=sub_id,
+        score=agg_score,
+        level=level,
+        alerts=all_alerts[:20],
+        summary=summary,
+    )
+
+
+# ============================================================================
+# Phase 3: Document Intelligence
+# ============================================================================
+
+@router.post(
+    "/subcontractors/{sub_id}/contracts/{contract_id}/documents",
+    response_model=ContractDocumentResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Upload a document for a contract",
+)
+async def upload_document(
+    sub_id: int,
+    contract_id: int,
+    file: UploadFile,
+    db: DBSession,
+    user: User = Depends(require_roles(UserRole.ADMIN, UserRole.PROJECT_MANAGER)),
+    file_type: str = Query("CONTRACT", description="CONTRACT|INVOICE|ADDENDUM|REPORT"),
+):
+    from app.models.subcontractor import DocumentType as DocTypeModel
+    import json as _json
+
+    await _ensure_subcontractor(db, sub_id)
+    await _ensure_contract_under_sub(db, sub_id, contract_id)
+
+    # Validate file_type
+    try:
+        doc_type = DocTypeModel(file_type.upper())
+    except ValueError:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Invalid file_type: {file_type}")
+
+    # Determine version
+    max_version = (await db.execute(
+        select(func.coalesce(func.max(ContractDocument.version), 0)).where(
+            ContractDocument.contract_id == contract_id,
+            ContractDocument.file_type == doc_type,
+        )
+    )).scalar_one()
+    version = int(max_version) + 1
+
+    # Save file
+    import os
+    upload_dir = os.path.join("uploads", "contracts", str(contract_id))
+    os.makedirs(upload_dir, exist_ok=True)
+
+    safe_name = f"{doc_type.value.lower()}_v{version}_{file.filename}"
+    file_path = os.path.join(upload_dir, safe_name)
+
+    content = await file.read()
+    with open(file_path, "wb") as f:
+        f.write(content)
+
+    # Try to extract data from text-based files
+    extracted = None
+    if file.content_type and "text" in file.content_type:
+        try:
+            from app.services.contract_parser import parse_contract_text
+            text = content.decode("utf-8", errors="ignore")
+            extracted = _json.dumps(parse_contract_text(text))
+        except Exception:
+            pass
+
+    doc = ContractDocument(
+        contract_id=contract_id,
+        file_name=file.filename or safe_name,
+        file_path=file_path,
+        file_size=len(content),
+        mime_type=file.content_type or "application/octet-stream",
+        file_type=doc_type,
+        version=version,
+        extracted_data=extracted,
+        uploaded_by=user.id,
+    )
+    db.add(doc)
+    await db.commit()
+    await db.refresh(doc)
+
+    resp = ContractDocumentResponse.model_validate(doc)
+    if doc.extracted_data:
+        resp.extracted_data = _json.loads(doc.extracted_data)
+    return resp
+
+
+@router.get(
+    "/subcontractors/{sub_id}/contracts/{contract_id}/documents",
+    response_model=list[ContractDocumentResponse],
+    summary="List documents for a contract",
+)
+async def list_documents(
+    sub_id: int, contract_id: int, user: CurrentUser, db: DBSession,
+) -> list[ContractDocumentResponse]:
+    import json as _json
+
+    await _ensure_subcontractor(db, sub_id)
+    await _ensure_contract_under_sub(db, sub_id, contract_id)
+
+    docs = list((await db.execute(
+        select(ContractDocument).where(
+            ContractDocument.contract_id == contract_id
+        ).order_by(ContractDocument.created_at.desc())
+    )).scalars().all())
+
+    result = []
+    for doc in docs:
+        resp = ContractDocumentResponse.model_validate(doc)
+        if doc.extracted_data:
+            try:
+                resp.extracted_data = _json.loads(doc.extracted_data)
+            except Exception:
+                pass
+        result.append(resp)
+    return result
+
+
+@router.get(
+    "/documents/{doc_id}/download",
+    summary="Download a document by ID",
+)
+async def download_document(
+    doc_id: int, user: CurrentUser, db: DBSession,
+):
+    from fastapi.responses import FileResponse
+    import os
+
+    doc = await db.get(ContractDocument, doc_id)
+    if doc is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Document not found")
+
+    if not os.path.exists(doc.file_path):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "File not found on disk")
+
+    return FileResponse(
+        path=doc.file_path,
+        filename=doc.file_name,
+        media_type=doc.mime_type,
+    )
+
+
+@router.delete(
+    "/documents/{doc_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete a document",
+)
+async def delete_document(
+    doc_id: int,
+    db: DBSession,
+    user: User = Depends(require_roles(UserRole.ADMIN, UserRole.PROJECT_MANAGER)),
+):
+    import os
+
+    doc = await db.get(ContractDocument, doc_id)
+    if doc is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Document not found")
+
+    # Remove file from disk
+    if os.path.exists(doc.file_path):
+        os.remove(doc.file_path)
+
+    await db.delete(doc)
+    await db.commit()
+
+
+# ============================================================================
+# Phase 4: AI Insights
+# ============================================================================
+
+@router.get(
+    "/subcontractors/{sub_id}/ai-insights",
+    response_model=SubcontractorInsights,
+    summary="AI-generated insights for a subcontractor",
+)
+async def get_ai_insights(
+    sub_id: int, user: CurrentUser, db: DBSession,
+) -> SubcontractorInsights:
+    sub = await _ensure_subcontractor(db, sub_id)
+
+    # Get active contracts with paid amounts
+    contracts_raw = list((await db.execute(
+        select(SubcontractorContract).where(
+            SubcontractorContract.subcontractor_id == sub_id,
+        )
+    )).scalars().all())
+
+    contract_dicts = []
+    for c in contracts_raw:
+        total_paid = Decimal((await db.execute(
+            select(func.coalesce(func.sum(SubcontractorPayment.amount), 0)).where(
+                SubcontractorPayment.contract_id == c.id,
+                SubcontractorPayment.status == PaymentStatus.PAID,
+            )
+        )).scalar_one())
+        contract_dicts.append({
+            "id": c.id,
+            "contract_amount": str(c.contract_amount),
+            "total_paid": str(total_paid),
+            "start_date": c.start_date.isoformat(),
+            "end_date": c.end_date.isoformat(),
+            "status": c.status.value,
+        })
+
+    # Get all payments
+    contract_ids = [c.id for c in contracts_raw]
+    payments_raw = []
+    if contract_ids:
+        payments_raw = list((await db.execute(
+            select(SubcontractorPayment).where(
+                SubcontractorPayment.contract_id.in_(contract_ids)
+            )
+        )).scalars().all())
+
+    payment_dicts = [
+        {
+            "amount": str(p.amount),
+            "payment_date": p.payment_date.isoformat(),
+            "due_date": p.due_date.isoformat() if p.due_date else None,
+            "status": p.status.value,
+            "created_at": p.created_at.isoformat() if p.created_at else None,
+        }
+        for p in payments_raw
+    ]
+
+    # Get risk score
+    risk_resp = await get_risk_score(sub_id, user, db)
+
+    # Generate insights
+    from app.services.insight_generator import generate_insights, determine_overall_health
+
+    insights = generate_insights(
+        subcontractor_name=sub.name,
+        contracts=contract_dicts,
+        payments=payment_dicts,
+        risk_score=risk_resp.score,
+    )
+
+    return SubcontractorInsights(
+        subcontractor_id=sub_id,
+        insights=insights,
+        overall_health=determine_overall_health(risk_resp.score),
+    )
