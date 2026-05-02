@@ -25,6 +25,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { api, ApiError } from "@/lib/api-client";
 import { useUser } from "@/components/providers/user-provider";
+import { useT } from "@/lib/i18n/provider";
 import { WorkforceDashboardCharts } from "@/components/workforce/dashboard-charts";
 import { WorkforceUploadDialog } from "@/components/workforce/upload-dialog";
 import { WorkforceInsightsCard } from "@/components/workforce/insights-card";
@@ -42,6 +43,7 @@ const ACTIVE_PROJECT_ID = 1;
 
 export default function WorkforcePage() {
   const { user } = useUser();
+  const { t } = useT();
   const canUpload = user && (user.role === "admin" || user.role === "project_manager");
 
   const [kpis, setKpis] = useState<WorkforceKPIBundle | null>(null);
@@ -100,16 +102,16 @@ export default function WorkforcePage() {
             <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-primary/20 to-primary/5 border border-primary/10 flex items-center justify-center">
               <Users className="h-5 w-5 text-primary" />
             </div>
-            Workforce Intelligence
+            {t("pages.workforce")}
           </h1>
           <p className="text-sm text-muted-foreground mt-1.5 ml-[52px]">
-            Real-time personnel analytics — direct, subcontractor, and discipline breakdowns.
+            {t("pages.workforceSubtitle")}
           </p>
         </div>
         {canUpload && (
           <Button onClick={() => setUploadOpen(true)} className="gap-2">
             <Upload className="h-4 w-4" />
-            Upload Excel
+            {t("workforce.uploadExcel")}
           </Button>
         )}
       </div>
@@ -156,7 +158,7 @@ export default function WorkforcePage() {
             {canUpload && (
               <Button onClick={() => setUploadOpen(true)} className="gap-2">
                 <Upload className="h-4 w-4" />
-                Upload Excel
+                {t("workforce.uploadExcel")}
               </Button>
             )}
           </CardContent>

@@ -41,6 +41,7 @@ import {
 import { api } from "@/lib/api-client";
 import { formatRubCompact } from "@/lib/formatters";
 import { useUser } from "@/components/providers/user-provider";
+import { useT } from "@/lib/i18n/provider";
 import { SpecializationCombobox } from "@/components/subcontractors/specialization-combobox";
 import { SubcontractorFormDialog } from "@/components/subcontractors/subcontractor-form-dialog";
 import { KpiCharts } from "@/components/subcontractors/kpi-charts";
@@ -52,6 +53,7 @@ import type {
 
 export default function SubcontractorsPage() {
   const { user } = useUser();
+  const { t } = useT();
   const canEdit =
     user && (user.role === "admin" || user.role === "project_manager");
 
@@ -115,16 +117,16 @@ export default function SubcontractorsPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
             <HardHat className="h-6 w-6" />
-            Subcontractors
+            {t("pages.subcontractors")}
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Manage subcontractor companies, contracts and payments.
+            {t("pages.subcontractorsSubtitle")}
           </p>
         </div>
         {canEdit && (
           <Button onClick={() => setFormOpen(true)}>
             <Plus className="h-4 w-4 mr-2" />
-            New Subcontractor
+            {t("subs.newSubcontractor")}
           </Button>
         )}
       </div>
@@ -133,37 +135,37 @@ export default function SubcontractorsPage() {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
         <KpiCard
           icon={<Users className="h-4 w-4 text-muted-foreground" />}
-          label="Total Subcontractors"
+          label={t("subs.totalSubcontractors")}
           value={kpis ? String(kpis.total_subcontractors) : null}
         />
         <KpiCard
           icon={<FileText className="h-4 w-4 text-muted-foreground" />}
-          label="Active Contracts"
+          label={t("subs.activeContracts")}
           value={kpis ? String(kpis.active_contracts) : null}
           subline={
             kpis && kpis.overdue_contracts > 0
-              ? `${kpis.overdue_contracts} overdue`
+              ? `${kpis.overdue_contracts} ${t("subs.overdueLabel")}`
               : undefined
           }
           sublineColor="text-red-600 dark:text-red-400"
         />
         <KpiCard
           icon={<AlertCircle className="h-4 w-4 text-muted-foreground" />}
-          label="Overdue"
+          label={t("subs.overdueContracts")}
           value={kpis ? String(kpis.overdue_contracts) : null}
           highlight={kpis ? kpis.overdue_contracts > 0 : false}
         />
         <KpiCard
           icon={<Wallet className="h-4 w-4 text-muted-foreground" />}
-          label="Total Contract Value"
+          label={t("subs.totalContractValue")}
           value={kpis ? formatRubCompact(kpis.total_contract_value) : null}
         />
         <KpiCard
           icon={<TrendingUp className="h-4 w-4 text-muted-foreground" />}
-          label="Payment Progress"
+          label={t("subs.paymentProgress")}
           value={kpis ? kpis.payment_completion_pct.toFixed(1) + "%" : null}
           subline={
-            kpis ? formatRubCompact(kpis.total_paid) + " paid" : undefined
+            kpis ? `${formatRubCompact(kpis.total_paid)} ${t("subs.paid")}` : undefined
           }
         />
       </div>
@@ -316,21 +318,23 @@ interface KpiCardProps {
 
 function KpiCard({ icon, label, value, subline, sublineColor, highlight }: KpiCardProps) {
   return (
-    <Card className={highlight ? "border-red-300 dark:border-red-900" : undefined}>
-      <CardHeader className="flex flex-row items-center justify-between pb-2">
-        <CardTitle className="text-sm font-medium text-muted-foreground">
+    <Card className={highlight ? "border-red-300 dark:border-red-900 overflow-hidden" : "overflow-hidden"}>
+      <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2 pt-5 px-5">
+        <CardTitle className="text-xs font-medium text-muted-foreground truncate">
           {label}
         </CardTitle>
-        {icon}
+        <span className="flex-shrink-0">{icon}</span>
       </CardHeader>
-      <CardContent>
+      <CardContent className="pt-0 pb-5 px-5">
         {value === null ? (
           <Skeleton className="h-8 w-24" />
         ) : (
-          <div className="text-3xl font-bold tracking-tight tabular-nums font-heading">{value}</div>
+          <div className="text-2xl font-bold tabular-nums font-heading leading-tight truncate">
+            {value}
+          </div>
         )}
         {subline && (
-          <p className={"text-xs mt-1 " + (sublineColor ?? "text-muted-foreground")}>
+          <p className={"text-[11px] mt-1.5 truncate " + (sublineColor ?? "text-muted-foreground")}>
             {subline}
           </p>
         )}

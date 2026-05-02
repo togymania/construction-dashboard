@@ -15,7 +15,9 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { LanguageSwitcher } from "@/components/language-switcher";
 import { useUser } from "@/components/providers/user-provider";
+import { useT } from "@/lib/i18n/provider";
 
 function isDynamicSegment(s: string): boolean {
   // Treat numeric IDs and UUID-like strings as dynamic — not human-readable.
@@ -27,6 +29,26 @@ function prettify(s: string): string {
     .split(/[-_]/)
     .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
     .join(" ");
+}
+
+function getBreadcrumbTranslated(
+  pathname: string,
+  t: (k: string) => string,
+): string {
+  // Map first segment to its translated nav label when possible
+  if (pathname === "/") return t("nav.dashboard");
+  const first = pathname.split("/").filter(Boolean)[0];
+  const navMap: Record<string, string> = {
+    projects: "nav.projects",
+    subcontractors: "nav.subcontractors",
+    workforce: "nav.workforce",
+    schedule: "nav.schedule",
+    risks: "nav.risks",
+    reports: "nav.reports",
+    settings: "nav.settings",
+  };
+  if (first && navMap[first]) return t(navMap[first]);
+  return getBreadcrumb(pathname);
 }
 
 function getBreadcrumb(pathname: string): string {
@@ -61,10 +83,11 @@ function formatRole(role: string): string {
 
 export function Header() {
   const pathname = usePathname();
-  const title = getBreadcrumb(pathname);
   const { user, logout } = useUser();
+  const { t } = useT();
+  const title = getBreadcrumbTranslated(pathname, t);
 
-  const displayName = user?.full_name ?? "Loading...";
+  const displayName = user?.full_name ?? t("status.loading");
   const displayRole = user ? formatRole(user.role) : "";
   const initials = user ? getInitials(user.full_name) : "?";
 
@@ -79,7 +102,7 @@ export function Header() {
           <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
           <Input
             type="search"
-            placeholder="Search..."
+            placeholder={t("header.search")}
             className="w-64 pl-8 bg-card/50 backdrop-blur-sm border-foreground/8 dark:border-white/8 focus-visible:ring-primary/50 focus-visible:ring-2 transition-all"
           />
         </div>
@@ -90,8 +113,10 @@ export function Header() {
         <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-destructive text-[10px] text-destructive-foreground shadow-[0_0_8px_rgba(239,68,68,0.5)]">
           3
         </span>
-        <span className="sr-only">Notifications</span>
+        <span className="sr-only">{t("header.notifications")}</span>
       </Button>
+
+      <LanguageSwitcher />
 
       <ThemeToggle />
 
@@ -120,12 +145,12 @@ export function Header() {
           <DropdownMenuSeparator />
           <DropdownMenuItem>
             <UserIcon className="mr-2 h-4 w-4" />
-            Profile
+            {t("header.profile")}
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem onClick={logout} className="text-destructive focus:text-destructive">
             <LogOut className="mr-2 h-4 w-4" />
-            Log out
+            {t("nav.logout")}
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>

@@ -65,7 +65,7 @@ def generate_insights(
             insights.append(AIInsight(
                 type="commentary",
                 severity="warning",
-                message=f"{subcontractor_name} son 7 günde ödeme hızını %{drop_pct} düşürdü",
+                message=f"{subcontractor_name} payment velocity dropped {drop_pct}% in the last 7 days",
                 metric_value=float(drop_pct),
                 generated_at=now,
             ))
@@ -74,7 +74,7 @@ def generate_insights(
             insights.append(AIInsight(
                 type="commentary",
                 severity="info",
-                message=f"{subcontractor_name} son 7 günde ödeme hızını %{increase_pct} artırdı",
+                message=f"{subcontractor_name} payment velocity increased {increase_pct}% in the last 7 days",
                 metric_value=float(increase_pct),
                 generated_at=now,
             ))
@@ -84,7 +84,7 @@ def generate_insights(
         insights.append(AIInsight(
             type="alert",
             severity="critical",
-            message=f"{subcontractor_name} kritik risk seviyesinde (skor: {risk_score}/100)",
+            message=f"{subcontractor_name} is at critical risk level (score: {risk_score}/100)",
             metric_value=float(risk_score),
             generated_at=now,
         ))
@@ -92,7 +92,7 @@ def generate_insights(
         insights.append(AIInsight(
             type="alert",
             severity="warning",
-            message=f"{subcontractor_name} riskli seviyeye yaklaşıyor (skor: {risk_score}/100)",
+            message=f"{subcontractor_name} is approaching risky threshold (score: {risk_score}/100)",
             metric_value=float(risk_score),
             generated_at=now,
         ))
@@ -121,7 +121,7 @@ def generate_insights(
                     insights.append(AIInsight(
                         type="prediction",
                         severity="warning" if delay < 30 else "critical",
-                        message=f"Bu hızla giderse sözleşme #{c.get('id', '?')} {delay} gün gecikecek",
+                        message=f"At this pace, contract #{c.get('id', '?')} will be {delay} days late",
                         metric_value=float(delay),
                         generated_at=now,
                     ))
@@ -136,7 +136,7 @@ def generate_insights(
                 insights.append(AIInsight(
                     type="prediction",
                     severity="warning",
-                    message=f"Sözleşme #{c.get('id', '?')} için bütçe aşımı riski %{overrun_prob}",
+                    message=f"Contract #{c.get('id', '?')} has a {overrun_prob}% budget-overrun risk",
                     metric_value=float(overrun_prob),
                     generated_at=now,
                 ))
@@ -153,7 +153,7 @@ def generate_insights(
         insights.append(AIInsight(
             type="alert",
             severity="critical",
-            message=f"{len(overdue_payments)} gecikmiş ödeme tespit edildi (toplam: {total_overdue:,.0f} ₽)",
+            message=f"{len(overdue_payments)} overdue payments detected (total: {total_overdue:,.0f} ₽)",
             metric_value=float(total_overdue),
             generated_at=now,
         ))
@@ -163,9 +163,111 @@ def generate_insights(
         insights.append(AIInsight(
             type="commentary",
             severity="info",
-            message=f"{subcontractor_name} düşük riskli ve sağlıklı durumda — performansı iyi",
+            message=f"{subcontractor_name} is low-risk and healthy — performing well",
             metric_value=float(risk_score),
             generated_at=now,
+            category="performance",
+            source="rule",
+        ))
+
+    # ---------- 6. (Day 11) Capacity / pace projection per active contract ----------
+    paid_payments = [p for p in payments if p.get("status") == "paid"]
+    for c in contracts:
+        if c.get("status") != "active":
+            continue
+        contract_amount = Decimal(str(c.get("contract_amount", 0)))
+        total_paid = Decimal(str(c.get("total_paid", 0)))
+        remaining = contract_amount - total_paid
+        if contract_amount <= 0 or remaining <= 0:
+            continue
+        progress_pct = float(total_paid / contract_amount * 100)
+
+        # Avg monthly pace from last 90 days of paid payments on this contract
+        recent_90d = [
+            p for p in paid_payments
+            if p.get("payment_date")
+            and (today - _to_date(p["payment_date"])).days <= 90
+            and (p.get("contract_id") == c.get("id") or p.get("contract_id") is None)
+        ]
+        if recent_90d:
+            sum_90d = sum(Decimal(str(p.get("amount", 0))) for p in recent_90d)
+            monthly_pace = sum_90d / 3
+            if monthly_pace > 0:
+                months_to_finish = float(remaining / monthly_pace)
+                end_date = _to_date(c.get("end_date", today.isoformat()))
+                months_left = max(0, (end_date.year - today.year) * 12 + (end_date.month - today.month))
+                if months_to_finish < months_left * 0.6:
+                    insights.append(AIInsight(
+                        type="commentary",
+                        severity="info",
+                        message=f"Contract #{c.get('id')} — {progress_pct:.0f}% remaining will be completed in approximately {months_to_finish:.1f} months at current pace (comfortable).",
+                        metric_value=months_to_finish,
+                        generated_at=now,
+                        category="schedule",
+                        title="Pace is healthy",
+                        body=f"Remaining {remaining:,.0f} RUB, at the last-3-month average of {monthly_pace:,.0f} RUB/month, will finish in {months_to_finish:.1f} months. {months_left} months remain until contract end.",
+                        source="rule",
+                    ))
+                elif months_to_finish > months_left and months_left > 0:
+                    insights.append(AIInsight(
+                        type="prediction",
+                        severity="warning",
+                        message=f"Contract #{c.get('id')} would take {months_to_finish:.1f} months at current pace, but only {months_left} months remain until end-date.",
+                        metric_value=months_to_finish - months_left,
+                        generated_at=now,
+                        category="schedule",
+                        title="Pace insufficient",
+                        body=f"Remaining {remaining:,.0f} RUB, at current monthly pace ({monthly_pace:,.0f} RUB), will finish in {months_to_finish:.1f} months. {months_left} months remain until contract end.",
+                        action="Either accelerate pace or initiate an end-date extension discussion.",
+                        source="rule",
+                    ))
+
+    # ---------- 7. (Day 11) Avg payment delay (creation → paid) ----------
+    paid_with_dates = [
+        p for p in payments
+        if p.get("status") == "paid" and p.get("payment_date") and p.get("created_at")
+    ]
+    if paid_with_dates:
+        delays_days: list[int] = []
+        for p in paid_with_dates:
+            created = _to_date(p.get("created_at"))
+            paid_date = _to_date(p.get("payment_date"))
+            d = (paid_date - created).days
+            if d >= 0:
+                delays_days.append(d)
+        if delays_days:
+            avg_delay = sum(delays_days) / len(delays_days)
+            if avg_delay > 25:
+                insights.append(AIInsight(
+                    type="commentary",
+                    severity="warning" if avg_delay > 35 else "info",
+                    message=f"{subcontractor_name} averages {avg_delay:.0f} days payment cycle — high vs. peers.",
+                    metric_value=avg_delay,
+                    generated_at=now,
+                    category="financial",
+                    title="Slow payment cycle",
+                    body=f"Last {len(delays_days)} payments averaged {avg_delay:.0f} days each. Industry baseline ~12-15 days.",
+                    action="Review the progress-payment approval workflow.",
+                    source="rule",
+                ))
+
+    # ---------- 8. (Day 11) Mock LLM-style insight (will be replaced by real LLM) ----------
+    if contracts and risk_score >= 30:
+        # Synthetic LLM-style commentary that uses combined facts
+        insights.append(AIInsight(
+            type="commentary",
+            severity="info",
+            message=f"Additional review recommended for {subcontractor_name} — multiple risk indicators detected.",
+            generated_at=now,
+            category="risk",
+            title="LLM mock — review recommended",
+            body=(
+                "This commentary was generated by the LLM mock (real LLM calls "
+                "will activate once ANTHROPIC_API_KEY is added). Risk score, payment "
+                "dynamics, and contract status were considered together."
+            ),
+            action="Add the API key and click 'Refresh' to get real LLM analysis.",
+            source="llm_mock",
         ))
 
     return insights

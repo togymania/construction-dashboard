@@ -603,8 +603,8 @@ async def workforce_kpis(project_id: int, db: DBSession, _user: CurrentUser):
             total_present=s.total_present,
         ))
 
-    # 30-day daily trend - sum companies per date
-    cutoff_30 = latest_date - timedelta(days=29)
+    # 14-day daily trend - sum companies per date
+    cutoff_14 = latest_date - timedelta(days=13)
     trend_rows = (await db.execute(
         select(
             WorkforceSnapshot.snapshot_date,
@@ -615,7 +615,7 @@ async def workforce_kpis(project_id: int, db: DBSession, _user: CurrentUser):
         )
         .where(
             WorkforceSnapshot.project_id == project_id,
-            WorkforceSnapshot.snapshot_date >= cutoff_30,
+            WorkforceSnapshot.snapshot_date >= cutoff_14,
         )
         .group_by(WorkforceSnapshot.snapshot_date)
         .order_by(WorkforceSnapshot.snapshot_date.asc())
@@ -717,12 +717,12 @@ async def workforce_kpis(project_id: int, db: DBSession, _user: CurrentUser):
     # Discipline trend (last 30 days) - need per-day position-level data
     discipline_trend: list[WorkforceDisciplinePoint] = []
     if daily_trend:
-        # Fetch all snapshots with counts+positions for the 30-day window
+        # Fetch all snapshots with counts+positions for the 14-day window
         disc_snaps_stmt = (
             select(WorkforceSnapshot)
             .where(
                 WorkforceSnapshot.project_id == project_id,
-                WorkforceSnapshot.snapshot_date >= cutoff_30,
+                WorkforceSnapshot.snapshot_date >= cutoff_14,
             )
             .options(selectinload(WorkforceSnapshot.counts).selectinload(WorkforceCount.position))
             .order_by(WorkforceSnapshot.snapshot_date.asc())

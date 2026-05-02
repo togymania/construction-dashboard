@@ -235,6 +235,52 @@ export interface MonthlyCashFlowPoint {
   pending_amount: string;
 }
 
+export interface CashFlowForecastPoint {
+  month: string;
+  best_case: string;
+  likely: string;
+  worst_case: string;
+  seasonality_factor: number;
+}
+
+export interface ContractEndPoint {
+  contract_id: number;
+  contract_label: string;
+  end_date: string;
+  remaining_amount: string;
+}
+
+export interface CashFlowForecast {
+  subcontractor_id: number;
+  historical: MonthlyCashFlowPoint[];
+  forecast: CashFlowForecastPoint[];
+  confidence: number;
+  insufficient_data: boolean;
+  months_of_data: number;
+  insights: string[];
+  contract_end_dates: ContractEndPoint[];
+  method: "ema_seasonal" | "naive_average" | "none";
+}
+
+export interface AggregateForecastContributor {
+  subcontractor_id: number;
+  name: string;
+  forecast_total_likely: string;
+  active_contract_count: number;
+  insufficient_data: boolean;
+}
+
+export interface AggregateCashFlowForecast {
+  historical: MonthlyCashFlowPoint[];
+  forecast: CashFlowForecastPoint[];
+  contributors: AggregateForecastContributor[];
+  total_subcontractors: number;
+  active_subcontractors: number;
+  confidence: number;
+  insufficient_data_count: number;
+  insights: string[];
+}
+
 export interface PaymentDiscipline {
   subcontractor_id: number;
   score: number;
@@ -286,6 +332,32 @@ export interface ExtractedContractData {
   company_names: string[];
   payment_terms: string[];
   confidence: number;
+  // Day 11 — extended fields (all optional for backwards-compat)
+  currency?: string | null;
+  company_name?: string | null;
+  counterparty_name?: string | null;
+  payment_terms_summary?: string | null;
+  penalty_clauses?: PenaltyClause[];
+  key_dates?: KeyDate[];
+  risk_flags?: string[];
+  summary?: string | null;
+  raw_text_sample?: string | null;
+  source?: string;
+  extracted_at?: string | null;
+}
+
+export interface PenaltyClause {
+  trigger: string;
+  penalty_type: "percentage" | "fixed" | "other";
+  amount: string | null;
+  percentage: number | null;
+  description: string;
+}
+
+export interface KeyDate {
+  date: string;
+  label: string;
+  description?: string | null;
 }
 
 // ---------- AI Insights (Phase 4) ----------
@@ -296,6 +368,12 @@ export interface AIInsight {
   message: string;
   metric_value: number | null;
   generated_at: string;
+  // Day 11 — optional richer fields
+  category?: "financial" | "schedule" | "risk" | "performance" | null;
+  title?: string | null;
+  body?: string | null;
+  action?: string | null;
+  source?: "rule" | "llm" | "llm_mock";
 }
 
 export interface SubcontractorInsights {

@@ -30,6 +30,12 @@ class Settings(BaseSettings):
 
     # Limits
     MAX_IMPORT_FILE_SIZE_MB: int = 5
+    MAX_PDF_SIZE_MB: int = 20
+
+    # LLM (Day 11) — leave empty to use mock responses (regex fallback always available)
+    ANTHROPIC_API_KEY: str = ""
+    ANTHROPIC_MODEL: str = "claude-sonnet-4-5"
+    LLM_TIMEOUT_SECONDS: int = 30
 
     @property
     def DATABASE_URL(self) -> str:

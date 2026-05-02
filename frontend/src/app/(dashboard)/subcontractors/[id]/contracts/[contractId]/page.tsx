@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { useParams } from "next/navigation";
 import Link from "next/link";
@@ -36,6 +36,7 @@ import { api } from "@/lib/api-client";
 import { formatRub, formatRubCompact, formatDate } from "@/lib/formatters";
 import { useUser } from "@/components/providers/user-provider";
 import { PaymentFormDialog } from "@/components/subcontractors/payment-form-dialog";
+import { ExtractedDataPreview } from "@/components/subcontractors/extracted-data-preview";
 import type {
   SubcontractorContract, SubcontractorPayment, ContractForecast,
   ContractAlert, ContractDocument as ContractDoc, DocumentType,
@@ -74,7 +75,12 @@ export default function ContractDetailPage() {
   const [forecast, setForecast] = useState<ContractForecast | null>(null);
   const [alerts, setAlerts] = useState<ContractAlert[]>([]);
   const [documents, setDocuments] = useState<ContractDoc[]>([]);
+  const [expandedDocId, setExpandedDocId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  function handleDocUpdated(updated: ContractDoc) {
+    setDocuments((prev) => prev.map((d) => (d.id === updated.id ? updated : d)));
+  }
 
   async function loadAll() {
     if (Number.isNaN(subId) || Number.isNaN(contractId)) return;
@@ -414,32 +420,54 @@ export default function ContractDetailPage() {
                   </TableHeader>
                   <TableBody>
                     {documents.map((doc) => (
-                      <TableRow key={doc.id}>
-                        <TableCell className="font-medium">{doc.file_name}</TableCell>
-                        <TableCell>
-                          <span className="text-xs px-2 py-0.5 rounded-full bg-muted">{doc.file_type}</span>
-                        </TableCell>
-                        <TableCell className="text-muted-foreground">v{doc.version}</TableCell>
-                        <TableCell className="text-xs text-muted-foreground">{(doc.file_size / 1024).toFixed(1)} KB</TableCell>
-                        <TableCell className="text-xs">{formatDate(doc.created_at)}</TableCell>
-                        <TableCell>
-                          <div className="flex gap-1">
-                            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setPreviewDoc(doc)} title="Preview">
-                              <Eye className="h-3.5 w-3.5" />
-                            </Button>
-                            <a href={api.subcontractors.documents.download(doc.id)} target="_blank" rel="noreferrer">
-                              <Button variant="ghost" size="icon" className="h-7 w-7" title="Download">
-                                <Download className="h-3.5 w-3.5" />
+                      <Fragment key={doc.id}>
+                        <TableRow>
+                          <TableCell className="font-medium">
+                            <button
+                              type="button"
+                              onClick={() => setExpandedDocId(expandedDocId === doc.id ? null : doc.id)}
+                              className="text-left hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors flex items-center gap-1.5"
+                            >
+                              {doc.extracted_data ? (
+                                <Bot className="h-3.5 w-3.5 text-indigo-500 flex-shrink-0" />
+                              ) : (
+                                <FileText className="h-3.5 w-3.5 flex-shrink-0 opacity-50" />
+                              )}
+                              {doc.file_name}
+                            </button>
+                          </TableCell>
+                          <TableCell>
+                            <span className="text-xs px-2 py-0.5 rounded-full bg-muted">{doc.file_type}</span>
+                          </TableCell>
+                          <TableCell className="text-muted-foreground">v{doc.version}</TableCell>
+                          <TableCell className="text-xs text-muted-foreground">{(doc.file_size / 1024).toFixed(1)} KB</TableCell>
+                          <TableCell className="text-xs">{formatDate(doc.created_at)}</TableCell>
+                          <TableCell>
+                            <div className="flex gap-1">
+                              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setPreviewDoc(doc)} title="Preview">
+                                <Eye className="h-3.5 w-3.5" />
                               </Button>
-                            </a>
-                            {canEdit && (
-                              <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => handleDeleteDoc(doc)} title="Delete">
-                                <Trash2 className="h-3.5 w-3.5" />
-                              </Button>
-                            )}
-                          </div>
-                        </TableCell>
-                      </TableRow>
+                              <a href={api.subcontractors.documents.download(doc.id)} target="_blank" rel="noreferrer">
+                                <Button variant="ghost" size="icon" className="h-7 w-7" title="Download">
+                                  <Download className="h-3.5 w-3.5" />
+                                </Button>
+                              </a>
+                              {canEdit && (
+                                <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => handleDeleteDoc(doc)} title="Delete">
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </Button>
+                              )}
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                        {expandedDocId === doc.id && (
+                          <TableRow>
+                            <TableCell colSpan={6} className="bg-muted/20 p-3">
+                              <ExtractedDataPreview doc={doc} canEdit={!!canEdit} onUpdated={handleDocUpdated} />
+                            </TableCell>
+                          </TableRow>
+                        )}
+                      </Fragment>
                     ))}
                   </TableBody>
                 </Table>

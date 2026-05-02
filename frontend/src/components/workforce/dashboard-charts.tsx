@@ -20,6 +20,7 @@ import {
 } from "recharts";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useT } from "@/lib/i18n/provider";
 import type {
   WorkforceKPIBundle,
   WorkforceKPIDailyPoint,
@@ -94,14 +95,15 @@ export function WorkforceDashboardCharts({ kpis }: Props) {
 // Daily Trend (REDESIGNED) - smooth line + stacked areas with total line
 // =============================================================================
 function DailyTrendChart({ trend }: { trend: WorkforceKPIDailyPoint[] }) {
+  const { t } = useT();
   if (trend.length === 0) {
     return (
       <Card className="border-foreground/5 bg-card/60 backdrop-blur-sm">
         <CardHeader>
-          <CardTitle className="text-base font-medium">Daily Workforce Trend</CardTitle>
+          <CardTitle className="text-base font-medium">{t("workforce.dailyTrend")}</CardTitle>
         </CardHeader>
         <CardContent className="flex items-center justify-center py-16 text-sm text-muted-foreground">
-          Upload data to see daily trends
+          {t("status.noData")}
         </CardContent>
       </Card>
     );
@@ -120,10 +122,10 @@ function DailyTrendChart({ trend }: { trend: WorkforceKPIDailyPoint[] }) {
       <CardHeader className="pb-2">
         <div className="flex items-center justify-between">
           <CardTitle className="text-base font-medium">
-            Daily Workforce Trend
+            {t("workforce.dailyTrend")}
           </CardTitle>
           <span className="text-xs text-muted-foreground tabular-nums">
-            Last {trend.length} {trend.length === 1 ? "day" : "days"}
+            {t("workforce.lastNDays", { n: trend.length })}
           </span>
         </div>
       </CardHeader>
@@ -161,9 +163,9 @@ function DailyTrendChart({ trend }: { trend: WorkforceKPIDailyPoint[] }) {
               contentStyle={tooltipStyle}
               formatter={(value, name) => {
                 const labels: Record<string, string> = {
-                  direct: "Direct",
-                  subcontractor: "Subcontractor",
-                  total: "Total Workforce",
+                  direct: t("workforce.direct"),
+                  subcontractor: t("workforce.subcontractor"),
+                  total: t("workforce.total"),
                 };
                 return [String(value), labels[String(name)] || String(name)];
               }}
@@ -216,6 +218,7 @@ function DailyTrendChart({ trend }: { trend: WorkforceKPIDailyPoint[] }) {
 // Weekly Comparison (REDESIGNED) - This week vs Last week with delta badge
 // =============================================================================
 function WeeklyComparisonChart({ buckets }: { buckets: WorkforceKPIWeeklyBucket[] }) {
+  const { t } = useT();
   if (buckets.length === 0) {
     return (
       <Card className="border-foreground/5 bg-card/60 backdrop-blur-sm">
@@ -251,7 +254,7 @@ function WeeklyComparisonChart({ buckets }: { buckets: WorkforceKPIWeeklyBucket[
     <Card className="border-foreground/5 bg-card/60 backdrop-blur-sm">
       <CardHeader className="pb-2">
         <div className="flex items-center justify-between">
-          <CardTitle className="text-base font-medium">Weekly Average</CardTitle>
+          <CardTitle className="text-base font-medium">{t("workforce.weeklyAverage")}</CardTitle>
           {diff !== null && (
             <span
               className={

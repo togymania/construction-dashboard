@@ -345,6 +345,62 @@ class MonthlyCashFlowPoint(BaseModel):
     pending_amount: Decimal
 
 
+class CashFlowForecastPoint(BaseModel):
+    """Forecasted cash flow for a single future month (3-scenario)."""
+
+    month: str  # YYYY-MM
+    best_case: Decimal
+    likely: Decimal
+    worst_case: Decimal
+    seasonality_factor: float = 1.0  # multiplier applied to base trend (1.0 = neutral)
+
+
+class ContractEndPoint(BaseModel):
+    """Marker on the forecast timeline showing when a contract ends."""
+
+    contract_id: int
+    contract_label: str  # description or contract_number
+    end_date: str  # YYYY-MM-DD
+    remaining_amount: Decimal
+
+
+class CashFlowForecast(BaseModel):
+    """Combined history + 3-month forecast bundle for a subcontractor."""
+
+    subcontractor_id: int
+    historical: list[MonthlyCashFlowPoint] = []  # last 12 months actuals
+    forecast: list[CashFlowForecastPoint] = []   # next 3 months
+    confidence: float = 0.0  # 0-1
+    insufficient_data: bool = False  # True when <12 months of history
+    months_of_data: int = 0
+    insights: list[str] = []  # short bullet observations
+    contract_end_dates: list[ContractEndPoint] = []
+    method: str = "ema_seasonal"  # "ema_seasonal" | "naive_average" | "none"
+
+
+class AggregateForecastContributor(BaseModel):
+    """One subcontractor's contribution to the aggregate forecast."""
+
+    subcontractor_id: int
+    name: str
+    forecast_total_likely: Decimal  # sum of next 3 months "likely"
+    active_contract_count: int
+    insufficient_data: bool
+
+
+class AggregateCashFlowForecast(BaseModel):
+    """Project-wide rollup: history + 3-month forecast across ALL active subcontractors."""
+
+    historical: list[MonthlyCashFlowPoint] = []  # last 12 months actuals (sum)
+    forecast: list[CashFlowForecastPoint] = []   # next 3 months (sum of all subs)
+    contributors: list[AggregateForecastContributor] = []  # per-sub breakdown
+    total_subcontractors: int = 0
+    active_subcontractors: int = 0
+    confidence: float = 0.0  # weighted avg of per-sub confidence
+    insufficient_data_count: int = 0  # how many subs had thin data
+    insights: list[str] = []  # aggregate-level observations
+
+
 class PaymentDiscipline(BaseModel):
     """Payment discipline score (0-100) for a subcontractor."""
 
@@ -408,15 +464,47 @@ class ContractDocumentResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class PenaltyClause(BaseModel):
+    """A single penalty clause extracted from a contract."""
+
+    trigger: str  # ne zaman tetiklenir, orn. "30 gun gecikme"
+    penalty_type: str  # "percentage" | "fixed" | "other"
+    amount: Decimal | None = None  # if fixed amount
+    percentage: float | None = None  # if percentage
+    description: str  # ham metin
+
+
+class KeyDate(BaseModel):
+    """A milestone or key date extracted from a contract."""
+
+    date: str  # YYYY-MM-DD
+    label: str  # "1. hakedis", "is bitis", "garanti baslangici"
+    description: str | None = None
+
+
 class ExtractedContractData(BaseModel):
     """Data extracted from a contract document via parsing."""
 
+    # Legacy / regex fields (kept for backwards-compatibility)
     contract_amount: Decimal | None = None
     start_date: str | None = None
     end_date: str | None = None
     company_names: list[str] = []
     payment_terms: list[str] = []
     confidence: float = 0.0  # 0-1
+
+    # New richer fields (LLM extraction, Day 11). All optional → backwards-compat.
+    currency: str | None = None  # RUB / USD / TRY
+    company_name: str | None = None  # subcontractor side
+    counterparty_name: str | None = None  # main contractor (Mono / Monart)
+    payment_terms_summary: str | None = None  # "30 gun vadeli" gibi tek cumlelik ozet
+    penalty_clauses: list[PenaltyClause] = []
+    key_dates: list[KeyDate] = []
+    risk_flags: list[str] = []  # "uzun bitis tarihi", "ceza orani yuksek" gibi
+    summary: str | None = None  # 2-3 cumlelik genel ozet
+    raw_text_sample: str | None = None  # ilk 500 karakter (debug)
+    source: str = "regex"  # "regex" | "llm" | "llm_mock"
+    extracted_at: datetime | None = None
 
 
 # =============================================================================
@@ -431,6 +519,12 @@ class AIInsight(BaseModel):
     message: str
     metric_value: float | None = None
     generated_at: datetime
+    # Day 11 — optional richer fields (backwards-compat)
+    category: str | None = None  # "financial" | "schedule" | "risk" | "performance"
+    title: str | None = None
+    body: str | None = None
+    action: str | None = None
+    source: str = "rule"  # "rule" | "llm" | "llm_mock"
 
 
 class SubcontractorInsights(BaseModel):

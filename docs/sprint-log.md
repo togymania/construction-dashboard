@@ -4,6 +4,133 @@ Living, day-by-day log. Forward-looking master plan is in
 docs/plans/sprint_roadmap.md. Day-specific plans live under
 docs/plans/dayN_*_plan.md.
 
+## Day 11 — Subcontractor Intelligence (2026-05-02)
+
+**Status:** Backend + frontend wired. LLM paths land as **mock responses**
+because Anthropic API key not yet obtained — flipping to real LLM is one
+`.env` line + cache-bust away. Commit deferred to local machine (sandbox
+mount truncates large files; safer to commit from Windows).
+
+### What landed
+
+**FAZ 2 — Cash Flow Forecast (~2.5 hours, shipped first per plan revision)**
+- New service `app/services/cashflow_forecast.py` with EMA + linear-trend +
+  quarterly-seasonality engine. Honest about limits: <12 months data → flag
+  `insufficient_data=True` and fall back to naive average.
+- Three scenarios: best / likely / worst, capped by remaining contract
+  capacity (no extrapolation past contract end-dates).
+- "No active contracts" branch returns zeros with high confidence (proven
+  with COMPLETED Atlas Beton fixture).
+- New schema: `CashFlowForecast`, `CashFlowForecastPoint`, `ContractEndPoint`.
+  Old `MonthlyCashFlowPoint` + `/cashflow` endpoint untouched (zero break).
+- New endpoint: `GET /subcontractors/{id}/cashflow-forecast`.
+- Frontend: dedicated `CashFlowForecastChart` component with Recharts
+  `ComposedChart` (Bar history + Line scenarios + Area confidence band +
+  ReferenceLine "today" + ReferenceDot contract-end markers + Insights
+  bullets + Contract-end-dates list).
+- "<12 ay veriden" amber warning badge per user request.
+- Confidence pill (color-coded), method label ("EMA + Mevsimsellik" /
+  "Basit Ortalama").
+- Wired into existing Cash Flow tab on subcontractor detail page (above
+  the existing detailed monthly bar chart).
+
+**FAZ 1 — PDF Upload + LLM Extraction Scaffolding (~2 hours, mock LLM)**
+- `requirements.txt`: added `pdfplumber==0.11.4`, `anthropic==0.39.0`.
+- `config.py` + `.env`: `ANTHROPIC_API_KEY` (empty default → mock path),
+  `ANTHROPIC_MODEL`, `LLM_TIMEOUT_SECONDS`, `MAX_PDF_SIZE_MB=20`.
+- `contract_parser.py` split into 3 layers:
+  - `parse_contract_text(text)` — existing regex (kept as fallback).
+  - `extract_text_from_pdf(bytes)` — pdfplumber wrapper.
+  - `parse_contract_with_llm(text, api_key=None)` — real Anthropic call
+    when key present, otherwise synthetic mock that blends regex output
+    with placeholder structured fields (penalty clauses, key dates,
+    risk flags) so frontend is fully testable now.
+- Schema additions: `PenaltyClause`, `KeyDate`, extended
+  `ExtractedContractData` with `currency`, `company_name`,
+  `counterparty_name`, `payment_terms_summary`, `penalty_clauses`,
+  `key_dates`, `risk_flags`, `summary`, `source`, `extracted_at`. All
+  new fields **optional** for backwards-compat with existing rows.
+- Existing `upload_document` endpoint now dispatches to PDF branch
+  (with size guard) → text extraction → LLM (or mock) extraction.
+- Two new endpoints:
+  - `POST /documents/{id}/re-extract` — manual re-run (key value when
+    LLM key gets added later or parser improves).
+  - `PATCH /documents/{id}/extracted-data` — user manual correction
+    (marks source as `user_edited`).
+- Frontend: new `ExtractedDataPreview` component shown inline as an
+  expandable row under each document (toggle by clicking filename or
+  Bot icon). Shows summary, key/value grid, penalty clauses (red border),
+  key dates, risk flags, source badge, confidence %. "Yeniden cikart"
+  + "Duzenle / Kaydet" actions for editors.
+- Yellow banner when `source=llm_mock` instructing user to add API key.
+
+**FAZ 3 — Insight Generator Extension + Cache (~1.5 hours)**
+- Did **not** rewrite `insight_generator.py` — extended it. Added 3 new
+  rule-based insight families on top of existing ones:
+  - Per-contract pace projection ("kalan %X normal akista Y ayda biter")
+    — `category=schedule`, with severity matched to whether tempo fits
+    contract end-date.
+  - Average payment delay ("ortalama 22 gun, sektor 12-15") —
+    `category=financial`, warns if >25 days.
+  - Mock LLM-style commentary stub (`source=llm_mock`) when risk_score
+    >= 30, prompting user to add API key for real analysis.
+- New service `app/services/insights_cache.py`: in-memory dict, TTL=10m,
+  process-local. Includes `invalidate(sub_id)` for future call sites
+  (payment write paths).
+- `AIInsight` schema extended with optional `category`, `title`, `body`,
+  `action`, `source` fields (backwards-compat — old clients ignore).
+- `/ai-insights` endpoint: cache lookup → generate → cache write.
+  `?force_refresh=true` query param bypasses cache.
+- Frontend: new `SubcontractorInsightsCard` component replaces inline
+  insights tab markup. Features: severity-sorted list, category filter
+  chips with counts, refresh button (calls force_refresh), per-row
+  source badges (LLM/mock), action callout, mock-banner footer.
+
+### Bugs fought
+
+- **Sandbox mount truncation:** Cowork's Linux mount cuts off large
+  files (>~12KB) when read from bash. Edit/Read tools work fine
+  (Windows side is intact), but `python` invoked from bash sees
+  truncated source and fails with syntax errors. Workaround:
+  rely on Read tool for verification, defer commits to host machine.
+- **Atlas COMPLETED forecast:** First version of `build_forecast`
+  produced positive forecast values for completed contracts because
+  the trend/EMA pipeline ignored contract status. Fixed by adding
+  early-return: if no `active` contracts AND total_remaining<=0,
+  return all-zero forecast with confidence=0.9.
+- **Pydantic forward reference:** `ExtractedContractData` referenced
+  `PenaltyClause` and `KeyDate` defined later in the file. Reordered
+  so child models come first.
+- **React Fragment + key prop:** `<>` shorthand can't take `key`,
+  switched to `<Fragment key={...}>` in document table mapping.
+
+### Carried to Day 12
+
+- Anthropic API key wiring (just `.env` value) + cache-bust to flip
+  all `llm_mock` paths to real LLM.
+- Cache invalidation hooks on payment create/update/delete (now manual
+  via "Yenile" button only).
+- Real PDF fixtures for end-to-end validation — currently only mock
+  text path validated.
+- Replace contract `description` quick-summary with extracted_data
+  `summary` when present (cross-cut with FAZ 1).
+- TS strict-mode debt still 6 errors (Day 4-5). No new errors introduced
+  but couldn't verify in sandbox due to mount truncation.
+
+### Validation
+
+- Backend `cashflow_forecast.py` unit-tested with 4 scenarios:
+  - 4-month history + active contract → 3 capped scenarios, insights
+    flag insufficient data.
+  - 14-month history with engineered Q4 dip → seasonality factor 0.75
+    detected, insight surfaces "Q4 %25 daha dusuk".
+  - Empty history → method=none, empty forecast.
+  - 18-month + active contract → method=ema_seasonal, confidence=0.8.
+- Manual review of all generated React components (Read tool, full file).
+- Schema validation: `CashFlowForecast(**bundle)` round-trip OK.
+
+---
+
 ## Day 10 — Workforce Module + Sidebar Cleanup (2026-04-28)
 
 **Status:** Committed end of day, cosmetics + Top Positions chart fix carried to Day 11.

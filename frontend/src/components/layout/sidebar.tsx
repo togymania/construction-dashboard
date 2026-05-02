@@ -19,19 +19,22 @@ import { cn } from "@/lib/utils";
 import { Separator } from "@/components/ui/separator";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useUser } from "@/components/providers/user-provider";
+import { useT } from "@/lib/i18n/provider";
 
+// `tKey` is the i18n key; `name` is a fallback used only if t() misses.
 const navigation = [
-  { name: "Dashboard", href: "/", icon: LayoutDashboard },
-  { name: "Projects", href: "/projects", icon: Briefcase },
-  { name: "Subcontractors", href: "/subcontractors", icon: HardHat },
-  { name: "Workforce", href: "/workforce", icon: Users },
-  { name: "Schedule", href: "/schedule", icon: Calendar },
-  { name: "Risks", href: "/risks", icon: AlertTriangle },
-  { name: "Reports", href: "/reports", icon: FileBarChart },
+  { tKey: "nav.dashboard", name: "Dashboard", href: "/", icon: LayoutDashboard },
+  { tKey: "nav.projects", name: "Projects", href: "/projects", icon: Briefcase },
+  { tKey: "nav.subcontractors", name: "Subcontractors", href: "/subcontractors", icon: HardHat },
+  { tKey: "nav.workforce", name: "Workforce", href: "/workforce", icon: Users },
+  { tKey: "nav.schedule", name: "Schedule", href: "/schedule", icon: Calendar },
+  { tKey: "nav.risks", name: "Risks", href: "/risks", icon: AlertTriangle },
+  { tKey: "nav.reports", name: "Reports", href: "/reports", icon: FileBarChart },
 ];
 
 const adminNavigation = [
   {
+    tKey: "nav.budgetCategories",
     name: "Budget Categories",
     href: "/settings/budget-categories",
     icon: Tags,
@@ -56,6 +59,7 @@ function formatRole(role: string): string {
 export function Sidebar({ className }: { className?: string }) {
   const pathname = usePathname();
   const { user } = useUser();
+  const { t } = useT();
 
   const visibleAdminLinks = adminNavigation.filter(
     (item) => user && (item.requiredRoles as readonly string[]).includes(user.role)
@@ -96,7 +100,7 @@ export function Sidebar({ className }: { className?: string }) {
               )}
             >
               <Icon className={cn("h-4 w-4 transition-colors duration-300", isActive && "text-primary")} />
-              {item.name}
+              {t(item.tKey)}
             </Link>
           );
         })}
@@ -124,7 +128,7 @@ export function Sidebar({ className }: { className?: string }) {
                   )}
                 >
                   <Icon className={cn("h-4 w-4 transition-colors duration-300", isActive && "text-primary")} />
-                  {item.name}
+                  {t(item.tKey)}
                 </Link>
               );
             })}

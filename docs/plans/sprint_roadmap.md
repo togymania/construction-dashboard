@@ -58,22 +58,34 @@ deferred. Updated at the end of each sprint day.
 
 ## Upcoming sprints
 
-### Day 10 - Workforce + polish + sidebar fix
+### Day 10 - Workforce + polish + sidebar fix (DONE)
 Detailed plan: docs/plans/day10_workforce_polish_plan.md
 
-### Day 11 - Documents module
-- File upload, document categories per project, preview, download
+### Day 11 - Subcontractor Intelligence (DONE, 2026-05-02)
+- FAZ 2: Cash Flow Forecast — EMA + quarterly seasonality, 3 scenarios,
+  confidence + insufficient_data flag, contract-end capping.
+- FAZ 1: PDF upload + LLM extraction scaffolding (mock LLM — API key pending).
+- FAZ 3: Insight generator extension (3 new rule families) + in-memory cache
+  + manual "Yenile" refresh button + LLM mock hooks.
+- Commit deferred to host machine (sandbox mount truncates large files).
 
-### Day 12 - Tasks/Milestones
+### Day 12 - LLM go-live + real-PDF validation
+- Add ANTHROPIC_API_KEY → flip all mock paths to real Claude calls.
+- Drop in real signed PDF contract fixtures, end-to-end validation.
+- Cache invalidation hooks on payment write paths.
+- Replace inline contract descriptions with extracted_data.summary
+  when present (cross-cut from FAZ 1).
+
+### Day 13 - Tasks/Milestones
 - Task model linked to projects, milestone tracker
 
-### Day 13 - Reports/Export + TS strict-mode debt cleanup
+### Day 14 - Reports/Export + TS strict-mode debt cleanup
 - Excel + PDF export, fix the 6 strict errors
 
-### Day 14 - Demo data + final polish
+### Day 15 - Demo data + final polish
 - Richer seed data, performance audit
 
-### Day 15 - Demo prep
+### Day 16 - Demo prep
 - Demo script, screen recording prep
 
 ### Day 16-18 (stretch / buffer)

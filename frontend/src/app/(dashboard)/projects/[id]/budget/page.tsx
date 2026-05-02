@@ -81,6 +81,7 @@ import {
 import { api } from "@/lib/api-client";
 import {
   formatRub,
+  formatRubAxisTick,
   formatRubCompact,
   formatPercent,
   formatDate,
@@ -479,7 +480,8 @@ export default function ProjectBudgetPage() {
                   />
                   <YAxis
                     tick={{ fontSize: 11 }}
-                    tickFormatter={(v: number) => formatRubCompact(v)}
+                    tickFormatter={(v: number) => formatRubAxisTick(v)}
+                    width={56}
                   />
                   <Tooltip
                     formatter={(value: number) => formatRub(value)}

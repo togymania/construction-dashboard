@@ -29,14 +29,17 @@ import {
 } from "@/components/ui/status-badge";
 
 import { api } from "@/lib/api-client";
-import { formatRub, formatRubCompact, formatDate } from "@/lib/formatters";
+import { formatRub, formatRubAxisTick, formatRubCompact, formatDate } from "@/lib/formatters";
 import { useUser } from "@/components/providers/user-provider";
+import { useT } from "@/lib/i18n/provider";
 import { SubcontractorFormDialog } from "@/components/subcontractors/subcontractor-form-dialog";
 import { ContractFormDialog } from "@/components/subcontractors/contract-form-dialog";
 import type {
   Subcontractor, SubcontractorContract, RiskScore, PaymentDiscipline,
   MonthlyCashFlowPoint, SubcontractorInsights, ContractAlert,
 } from "@/types/subcontractor";
+import { SubcontractorInsightsCard } from "@/components/subcontractors/insights-card";
+import { SubcontractorDocumentsTab } from "@/components/subcontractors/subcontractor-documents-tab";
 
 // ---------- Sub-components ----------
 
@@ -71,6 +74,7 @@ export default function SubcontractorDetailPage() {
   const params = useParams<{ id: string }>();
   const subId = parseInt(params.id, 10);
   const { user } = useUser();
+  const { t } = useT();
   const canEdit = user && (user.role === "admin" || user.role === "project_manager");
 
   const [sub, setSub] = useState<Subcontractor | null>(null);
@@ -109,7 +113,8 @@ export default function SubcontractorDetailPage() {
         api.subcontractors.aiInsights(subId).catch(() => null),
       ]);
       setSub(subData); setContracts(contractData); setSpecOptions(specs);
-      setRisk(riskData); setDiscipline(discData); setCashflow(cfData); setInsights(insData);
+      setRisk(riskData); setDiscipline(discData); setCashflow(cfData);
+      setInsights(insData);
     } catch (err) { setError(err instanceof Error ? err.message : "Failed to load"); }
   }
 
@@ -213,10 +218,11 @@ export default function SubcontractorDetailPage() {
       {/* ── TABS ── */}
       <Tabs defaultValue="contracts">
         <TabsList>
-          <TabsTrigger value="contracts">Contracts {contracts ? `(${contracts.length})` : ""}</TabsTrigger>
-          <TabsTrigger value="cashflow"><BarChart3 className="h-3.5 w-3.5 mr-1" />Cash Flow</TabsTrigger>
-          <TabsTrigger value="insights"><Bot className="h-3.5 w-3.5 mr-1" />AI Insights</TabsTrigger>
-          <TabsTrigger value="overview">Overview</TabsTrigger>
+          <TabsTrigger value="contracts">{t("subs.contracts")} {contracts ? `(${contracts.length})` : ""}</TabsTrigger>
+          <TabsTrigger value="documents"><FileText className="h-3.5 w-3.5 mr-1" />{t("subs.documents")}</TabsTrigger>
+          <TabsTrigger value="cashflow"><BarChart3 className="h-3.5 w-3.5 mr-1" />{t("subs.cashFlow")}</TabsTrigger>
+          <TabsTrigger value="insights"><Bot className="h-3.5 w-3.5 mr-1" />{t("subs.aiInsights")}</TabsTrigger>
+          <TabsTrigger value="overview">{t("subs.overview")}</TabsTrigger>
         </TabsList>
 
         {/* Contracts */}
@@ -295,6 +301,11 @@ export default function SubcontractorDetailPage() {
           </Card>
         </TabsContent>
 
+        {/* Documents */}
+        <TabsContent value="documents" className="space-y-4">
+          <SubcontractorDocumentsTab subId={subId} contracts={contracts} canEdit={!!canEdit} />
+        </TabsContent>
+
         {/* Cash Flow */}
         <TabsContent value="cashflow" className="space-y-4">
           <Card>
@@ -306,8 +317,8 @@ export default function SubcontractorDetailPage() {
                 <ResponsiveContainer width="100%" height={300}>
                   <BarChart data={cfChartData}>
                     <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                    <XAxis dataKey="month" className="text-xs" />
-                    <YAxis tickFormatter={(v) => formatRubCompact(v)} className="text-xs" />
+                    <XAxis dataKey="month" className="text-xs" tick={{ fontSize: 11 }} />
+                    <YAxis tickFormatter={(v) => formatRubAxisTick(v)} className="text-xs" tick={{ fontSize: 11 }} width={56} />
                     <Tooltip formatter={(v: unknown) => typeof v === "number" ? formatRubCompact(v) : String(v)} contentStyle={{ borderRadius: 8, fontSize: 12 }} />
                     <Legend verticalAlign="top" wrapperStyle={{ fontSize: 12, paddingBottom: 8 }} />
                     <Bar dataKey="Paid" stackId="a" fill="#10b981" radius={[0,0,0,0]} />
@@ -335,49 +346,19 @@ export default function SubcontractorDetailPage() {
 
         {/* AI Insights */}
         <TabsContent value="insights" className="space-y-4">
+          <SubcontractorInsightsCard
+            subcontractorId={subId}
+            insights={insights}
+            onRefreshed={setInsights}
+          />
+          {/* AI Chat placeholder */}
           <Card>
-            <CardHeader>
-              <CardTitle className="text-base flex items-center gap-2">
-                <Bot className="h-4 w-4" /> AI Insights
-                {insights && (
-                  <span className={`text-xs px-2 py-0.5 rounded-full ml-2 ${insights.overall_health === "good" ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300" : insights.overall_health === "critical" ? "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300" : "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"}`}>
-                    {insights.overall_health}
-                  </span>
-                )}
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {!insights || insights.insights.length === 0 ? (
-                <div className="text-center py-12 text-muted-foreground">
-                  <Bot className="h-10 w-10 mx-auto mb-3 opacity-30" />
-                  <p>No insights available yet. Add contracts and payments to generate insights.</p>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {insights.insights.map((ins, i) => (
-                    <div key={i} className={`flex items-start gap-3 p-3 rounded-lg border ${ins.severity === "critical" ? "border-red-200 dark:border-red-800 bg-red-50/50 dark:bg-red-950/20" : ins.severity === "warning" ? "border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-950/20" : "border-border bg-muted/30"}`}>
-                      <div className={`mt-0.5 ${ins.severity === "critical" ? "text-red-500" : ins.severity === "warning" ? "text-amber-500" : "text-blue-500"}`}>
-                        {ins.type === "prediction" ? <TrendingUp className="h-4 w-4" /> : ins.type === "alert" ? <AlertCircle className="h-4 w-4" /> : <Bot className="h-4 w-4" />}
-                      </div>
-                      <div className="flex-1">
-                        <p className="text-sm">{ins.message}</p>
-                        <div className="flex items-center gap-2 mt-1">
-                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground">{ins.type}</span>
-                          {ins.metric_value !== null && <span className="text-xs text-muted-foreground">metric: {ins.metric_value}</span>}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-              {/* AI Chat placeholder */}
-              <div className="mt-6 pt-4 border-t">
-                <div className="flex gap-2">
-                  <input type="text" placeholder="Ask about this subcontractor..." className="flex-1 rounded-lg border px-3 py-2 text-sm bg-background" disabled />
-                  <Button disabled size="sm">Ask AI</Button>
-                </div>
-                <p className="text-xs text-muted-foreground mt-1">AI Chat coming soon — Phase 2</p>
+            <CardContent className="pt-6">
+              <div className="flex gap-2">
+                <input type="text" placeholder="Ask about this subcontractor..." className="flex-1 rounded-lg border px-3 py-2 text-sm bg-background" disabled />
+                <Button disabled size="sm">Ask AI</Button>
               </div>
+              <p className="text-xs text-muted-foreground mt-1">AI Chat coming soon — Phase 2</p>
             </CardContent>
           </Card>
         </TabsContent>

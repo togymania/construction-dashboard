@@ -24,6 +24,23 @@ export function formatRubCompact(value: string | number | null | undefined): str
 }
 
 /**
+ * Axis-tick variant — same compact magnitude but no currency symbol so it
+ * fits inside narrow Y-axis tick areas. Use formatRubCompact for tooltips
+ * and labels where the ₽ glyph belongs.
+ * Example: "600M", "1.5B", "245K".
+ */
+export function formatRubAxisTick(value: string | number | null | undefined): string {
+  if (value === null || value === undefined) return "0";
+  const num = typeof value === "string" ? parseFloat(value) : value;
+  if (isNaN(num)) return "0";
+
+  if (num >= 1_000_000_000) return `${(num / 1_000_000_000).toFixed(1)}B`;
+  if (num >= 1_000_000) return `${Math.round(num / 1_000_000)}M`;
+  if (num >= 1_000) return `${Math.round(num / 1_000)}K`;
+  return `${Math.round(num)}`;
+}
+
+/**
  * Backward-compatible alias for code that still calls formatCurrency.
  * Now formats as RUB instead of USD.
  */

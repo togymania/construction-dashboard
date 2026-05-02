@@ -23,6 +23,9 @@ from app.models.subcontractor import (
 from app.models.user import User, UserRole
 from app.schemas.subcontractor import (
     AIInsight,
+    AggregateCashFlowForecast,
+    AggregateForecastContributor,
+    CashFlowForecast,
     ContractAlert,
     ContractCreate,
     ContractDocumentResponse,
@@ -44,6 +47,7 @@ from app.schemas.subcontractor import (
     SubcontractorUpdate,
     TopSubcontractor,
 )
+from app.services.cashflow_forecast import build_forecast as _build_cashflow_forecast
 
 router = APIRouter(tags=["Subcontractors"])
 
@@ -1142,6 +1146,248 @@ async def get_cashflow(
     ]
 
 
+@router.get(
+    "/subcontractors/{sub_id}/cashflow-forecast",
+    response_model=CashFlowForecast,
+    summary="Seasonal 3-month cash flow forecast (history + best/likely/worst)",
+)
+async def get_cashflow_forecast(
+    sub_id: int, user: CurrentUser, db: DBSession,
+) -> CashFlowForecast:
+    """Build a seasonal 3-month forecast for a subcontractor.
+
+    History uses paid + approved payments aggregated monthly. The forecast
+    engine handles trend (linear), seasonality (quarterly multipliers), and
+    contract end-date capping. Returns confidence + insufficient_data flag
+    so the UI can warn the user when data is thin.
+    """
+    await _ensure_subcontractor(db, sub_id)
+
+    # 1) History: aggregate paid + approved by month for THIS subcontractor's contracts
+    contract_ids_stmt = select(SubcontractorContract.id).where(
+        SubcontractorContract.subcontractor_id == sub_id
+    )
+    history_rows = (await db.execute(
+        select(
+            func.to_char(func.date_trunc("month", SubcontractorPayment.payment_date), "YYYY-MM").label("month"),
+            func.coalesce(func.sum(SubcontractorPayment.amount), 0).label("amount"),
+        )
+        .where(
+            SubcontractorPayment.contract_id.in_(contract_ids_stmt),
+            SubcontractorPayment.status.in_([PaymentStatus.PAID, PaymentStatus.APPROVED]),
+        )
+        .group_by("month").order_by("month")
+    )).all()
+
+    # 2) Active/draft contracts with remaining capacity + end dates
+    contracts_stmt = (await db.execute(
+        select(SubcontractorContract).where(
+            SubcontractorContract.subcontractor_id == sub_id
+        )
+    )).scalars().all()
+
+    contracts_data: list[dict] = []
+    for c in contracts_stmt:
+        # Sum paid for this contract
+        paid_total = (await db.execute(
+            select(func.coalesce(func.sum(SubcontractorPayment.amount), 0)).where(
+                SubcontractorPayment.contract_id == c.id,
+                SubcontractorPayment.status == PaymentStatus.PAID,
+            )
+        )).scalar_one() or 0
+
+        contracts_data.append({
+            "id": c.id,
+            "label": c.contract_number or c.description[:40],
+            "contract_amount": c.contract_amount,
+            "total_paid": Decimal(str(paid_total)),
+            "end_date": c.end_date,
+            "status": c.status.value,
+        })
+
+    # 3) Build forecast
+    bundle = _build_cashflow_forecast(
+        subcontractor_id=sub_id,
+        history_rows=[(r[0], r[1]) for r in history_rows],
+        contracts=contracts_data,
+    )
+
+    return CashFlowForecast(**bundle)
+
+
+@router.get(
+    "/subcontractors/cashflow-forecast/aggregate",
+    response_model=AggregateCashFlowForecast,
+    summary="Project-wide 3-month cash flow forecast across all active subcontractors",
+)
+async def get_aggregate_cashflow_forecast(
+    user: CurrentUser, db: DBSession,
+) -> AggregateCashFlowForecast:
+    """Roll-up forecast across every subcontractor with at least one active
+    contract. Each sub's per-month likely/best/worst is summed by month;
+    confidence is a weighted average by forecast magnitude.
+    """
+    # 1) Pull all subcontractors with at least one active contract
+    subs = list((await db.execute(
+        select(Subcontractor).join(SubcontractorContract).where(
+            SubcontractorContract.status == ContractStatus.ACTIVE
+        ).distinct()
+    )).scalars().all())
+
+    total_subs_count = (await db.execute(
+        select(func.count(Subcontractor.id))
+    )).scalar_one()
+
+    # Aggregation buckets (month → totals)
+    hist_by_month: dict[str, Decimal] = {}
+    fc_best: dict[str, Decimal] = {}
+    fc_likely: dict[str, Decimal] = {}
+    fc_worst: dict[str, Decimal] = {}
+    fc_season: dict[str, list[float]] = {}
+
+    contributors: list[AggregateForecastContributor] = []
+    insufficient_count = 0
+    confidence_weights: list[tuple[float, float]] = []  # (confidence, weight)
+
+    for sub in subs:
+        # History rows for this sub
+        contract_ids_stmt = select(SubcontractorContract.id).where(
+            SubcontractorContract.subcontractor_id == sub.id
+        )
+        history_rows = (await db.execute(
+            select(
+                func.to_char(func.date_trunc("month", SubcontractorPayment.payment_date), "YYYY-MM").label("month"),
+                func.coalesce(func.sum(SubcontractorPayment.amount), 0).label("amount"),
+            )
+            .where(
+                SubcontractorPayment.contract_id.in_(contract_ids_stmt),
+                SubcontractorPayment.status.in_([PaymentStatus.PAID, PaymentStatus.APPROVED]),
+            )
+            .group_by("month").order_by("month")
+        )).all()
+
+        # Contracts for this sub (all statuses — engine filters)
+        sub_contracts = (await db.execute(
+            select(SubcontractorContract).where(
+                SubcontractorContract.subcontractor_id == sub.id
+            )
+        )).scalars().all()
+
+        contract_dicts: list[dict] = []
+        active_count_for_sub = 0
+        for c in sub_contracts:
+            paid_total = (await db.execute(
+                select(func.coalesce(func.sum(SubcontractorPayment.amount), 0)).where(
+                    SubcontractorPayment.contract_id == c.id,
+                    SubcontractorPayment.status == PaymentStatus.PAID,
+                )
+            )).scalar_one() or 0
+            contract_dicts.append({
+                "id": c.id,
+                "label": c.contract_number or c.description[:40],
+                "contract_amount": c.contract_amount,
+                "total_paid": Decimal(str(paid_total)),
+                "end_date": c.end_date,
+                "status": c.status.value,
+            })
+            if c.status == ContractStatus.ACTIVE:
+                active_count_for_sub += 1
+
+        bundle = _build_cashflow_forecast(
+            subcontractor_id=sub.id,
+            history_rows=[(r[0], r[1]) for r in history_rows],
+            contracts=contract_dicts,
+        )
+
+        # Historical summation
+        for h in bundle["historical"]:
+            m = h["month"]
+            hist_by_month[m] = hist_by_month.get(m, Decimal("0")) + Decimal(str(h["paid_amount"]))
+
+        # Forecast summation
+        sub_likely_total = Decimal("0")
+        for f in bundle["forecast"]:
+            m = f["month"]
+            fc_best[m] = fc_best.get(m, Decimal("0")) + Decimal(str(f["best_case"]))
+            fc_likely[m] = fc_likely.get(m, Decimal("0")) + Decimal(str(f["likely"]))
+            fc_worst[m] = fc_worst.get(m, Decimal("0")) + Decimal(str(f["worst_case"]))
+            fc_season.setdefault(m, []).append(float(f.get("seasonality_factor", 1.0)))
+            sub_likely_total += Decimal(str(f["likely"]))
+
+        if bundle["insufficient_data"]:
+            insufficient_count += 1
+
+        confidence_weights.append((float(bundle["confidence"]), float(sub_likely_total)))
+
+        contributors.append(AggregateForecastContributor(
+            subcontractor_id=sub.id,
+            name=sub.name,
+            forecast_total_likely=sub_likely_total,
+            active_contract_count=active_count_for_sub,
+            insufficient_data=bundle["insufficient_data"],
+        ))
+
+    # Build aggregated historical (sorted, last 12 months)
+    historical_sorted = sorted(hist_by_month.items())
+    historical = [
+        {
+            "month": m,
+            "paid_amount": amt,
+            "approved_amount": Decimal("0"),
+            "pending_amount": Decimal("0"),
+        }
+        for m, amt in historical_sorted[-12:]
+    ]
+
+    # Build aggregated forecast (sorted by month)
+    forecast_months = sorted(fc_likely.keys())
+    forecast = []
+    for m in forecast_months:
+        avg_season = sum(fc_season.get(m, [1.0])) / max(1, len(fc_season.get(m, [1.0])))
+        forecast.append({
+            "month": m,
+            "best_case": fc_best.get(m, Decimal("0")),
+            "likely": fc_likely.get(m, Decimal("0")),
+            "worst_case": fc_worst.get(m, Decimal("0")),
+            "seasonality_factor": round(avg_season, 2),
+        })
+
+    # Weighted confidence
+    total_weight = sum(w for _, w in confidence_weights)
+    if total_weight > 0:
+        agg_conf = sum(c * w for c, w in confidence_weights) / total_weight
+    else:
+        agg_conf = sum(c for c, _ in confidence_weights) / max(1, len(confidence_weights)) if confidence_weights else 0.0
+
+    # Insights
+    insights: list[str] = []
+    total_likely_3m = sum(fc_likely.values())
+    if total_likely_3m > 0:
+        insights.append(f"Estimated total payments for the next 3 months: {float(total_likely_3m):,.0f} RUB.")
+    if insufficient_count > 0 and len(subs) > 0:
+        insights.append(
+            f"{insufficient_count}/{len(subs)} subcontractors have <12 months of history; their forecasts are less reliable."
+        )
+    # Top contributor
+    if contributors:
+        top = max(contributors, key=lambda c: c.forecast_total_likely)
+        if top.forecast_total_likely > 0:
+            insights.append(
+                f"Largest contributor: {top.name} (~{float(top.forecast_total_likely):,.0f} RUB over 3 months)."
+            )
+
+    return AggregateCashFlowForecast(
+        historical=historical,
+        forecast=forecast,
+        contributors=contributors,
+        total_subcontractors=int(total_subs_count or 0),
+        active_subcontractors=len(subs),
+        confidence=round(agg_conf, 2),
+        insufficient_data_count=insufficient_count,
+        insights=insights,
+    )
+
+
 # ============================================================================
 # Phase 2: Risk & Alert System
 # ============================================================================
@@ -1372,15 +1618,46 @@ async def upload_document(
     with open(file_path, "wb") as f:
         f.write(content)
 
-    # Try to extract data from text-based files
+    # Try to extract data from the file
     extracted = None
-    if file.content_type and "text" in file.content_type:
-        try:
-            from app.services.contract_parser import parse_contract_text
+    try:
+        from app.services.contract_parser import (
+            parse_contract_text,
+            extract_text_from_pdf,
+            parse_contract_with_llm,
+        )
+        from app.core.config import settings
+
+        text = ""
+        ctype = (file.content_type or "").lower()
+        fname = (file.filename or "").lower()
+
+        # PDF branch (Day 11)
+        if "pdf" in ctype or fname.endswith(".pdf"):
+            # Soft size check (config-driven)
+            max_bytes = settings.MAX_PDF_SIZE_MB * 1024 * 1024
+            if len(content) > max_bytes:
+                raise HTTPException(
+                    status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                    f"PDF too large (>{settings.MAX_PDF_SIZE_MB}MB)",
+                )
+            text = extract_text_from_pdf(content)
+        elif ctype.startswith("text/") or "text" in ctype:
             text = content.decode("utf-8", errors="ignore")
-            extracted = _json.dumps(parse_contract_text(text))
-        except Exception:
-            pass
+
+        if text:
+            llm_result = parse_contract_with_llm(
+                text,
+                api_key=settings.ANTHROPIC_API_KEY or None,
+                model=settings.ANTHROPIC_MODEL,
+                timeout=settings.LLM_TIMEOUT_SECONDS,
+            )
+            extracted = _json.dumps(llm_result, default=str)
+    except HTTPException:
+        raise
+    except Exception:
+        # Never block upload on parse failure
+        pass
 
     doc = ContractDocument(
         contract_id=contract_id,
@@ -1432,6 +1709,102 @@ async def list_documents(
                 pass
         result.append(resp)
     return result
+
+
+@router.post(
+    "/documents/{doc_id}/re-extract",
+    response_model=ContractDocumentResponse,
+    summary="Re-run text + LLM extraction on an already-uploaded document",
+)
+async def re_extract_document(
+    doc_id: int,
+    db: DBSession,
+    user: User = Depends(require_roles(UserRole.ADMIN, UserRole.PROJECT_MANAGER)),
+) -> ContractDocumentResponse:
+    """Re-run extraction. Useful after parser upgrades or after the user adds
+    an Anthropic API key for better LLM-based extraction."""
+    import json as _json
+    import os
+
+    doc = await db.get(ContractDocument, doc_id)
+    if doc is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Document not found")
+    if not os.path.exists(doc.file_path):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "File not found on disk")
+
+    from app.services.contract_parser import (
+        extract_text_from_pdf,
+        parse_contract_with_llm,
+    )
+    from app.core.config import settings
+
+    with open(doc.file_path, "rb") as f:
+        content = f.read()
+
+    text = ""
+    fname = doc.file_name.lower()
+    ctype = (doc.mime_type or "").lower()
+    if "pdf" in ctype or fname.endswith(".pdf"):
+        text = extract_text_from_pdf(content)
+    elif ctype.startswith("text/") or "text" in ctype:
+        text = content.decode("utf-8", errors="ignore")
+
+    if not text:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "Could not extract any text from this document.",
+        )
+
+    llm_result = parse_contract_with_llm(
+        text,
+        api_key=settings.ANTHROPIC_API_KEY or None,
+        model=settings.ANTHROPIC_MODEL,
+        timeout=settings.LLM_TIMEOUT_SECONDS,
+    )
+    doc.extracted_data = _json.dumps(llm_result, default=str)
+    await db.commit()
+    await db.refresh(doc)
+
+    resp = ContractDocumentResponse.model_validate(doc)
+    if doc.extracted_data:
+        resp.extracted_data = _json.loads(doc.extracted_data)
+    return resp
+
+
+@router.patch(
+    "/documents/{doc_id}/extracted-data",
+    response_model=ContractDocumentResponse,
+    summary="User-edit the extracted data JSON for a document",
+)
+async def update_extracted_data(
+    doc_id: int,
+    payload: dict,
+    db: DBSession,
+    user: User = Depends(require_roles(UserRole.ADMIN, UserRole.PROJECT_MANAGER)),
+) -> ContractDocumentResponse:
+    """Allow the user to manually correct LLM/regex extraction. Body is the
+    full new extracted_data JSON. Only the listed fields are persisted, others
+    ignored to keep schema clean."""
+    import json as _json
+
+    doc = await db.get(ContractDocument, doc_id)
+    if doc is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Document not found")
+
+    # Defensive: only accept dict-shaped JSON
+    if not isinstance(payload, dict):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Body must be a JSON object")
+
+    # Mark as user-edited
+    payload = {**payload, "source": "user_edited"}
+    doc.extracted_data = _json.dumps(payload, default=str)
+    await db.commit()
+    await db.refresh(doc)
+
+    resp = ContractDocumentResponse.model_validate(doc)
+    if doc.extracted_data:
+        resp.extracted_data = _json.loads(doc.extracted_data)
+    return resp
 
 
 @router.get(
@@ -1489,11 +1862,22 @@ async def delete_document(
 @router.get(
     "/subcontractors/{sub_id}/ai-insights",
     response_model=SubcontractorInsights,
-    summary="AI-generated insights for a subcontractor",
+    summary="AI-generated insights for a subcontractor (cached, manual refresh)",
 )
 async def get_ai_insights(
-    sub_id: int, user: CurrentUser, db: DBSession,
+    sub_id: int,
+    user: CurrentUser,
+    db: DBSession,
+    force_refresh: bool = Query(False, description="Bypass cache and re-generate"),
 ) -> SubcontractorInsights:
+    from app.services import insights_cache
+
+    # Cache lookup
+    if not force_refresh:
+        cached = insights_cache.get(sub_id)
+        if cached is not None:
+            return cached
+
     sub = await _ensure_subcontractor(db, sub_id)
 
     # Get active contracts with paid amounts
@@ -1532,6 +1916,7 @@ async def get_ai_insights(
 
     payment_dicts = [
         {
+            "contract_id": p.contract_id,
             "amount": str(p.amount),
             "payment_date": p.payment_date.isoformat(),
             "due_date": p.due_date.isoformat() if p.due_date else None,
@@ -1554,8 +1939,12 @@ async def get_ai_insights(
         risk_score=risk_resp.score,
     )
 
-    return SubcontractorInsights(
+    response = SubcontractorInsights(
         subcontractor_id=sub_id,
         insights=insights,
         overall_health=determine_overall_health(risk_resp.score),
     )
+
+    # Cache for next call
+    insights_cache.set(sub_id, response)
+    return response

@@ -80,6 +80,8 @@ import type {
   BudgetImportMode,
 } from "@/types/budget";
 import type {
+  AggregateCashFlowForecast,
+  CashFlowForecast,
   ContractAlert,
   ContractDocument,
   ContractForecast,
@@ -377,6 +379,10 @@ export const api = {
       request<PaymentDiscipline>("/subcontractors/" + subId + "/payment-discipline"),
     cashflow: (subId: number) =>
       request<MonthlyCashFlowPoint[]>("/subcontractors/" + subId + "/cashflow"),
+    cashflowForecast: (subId: number) =>
+      request<CashFlowForecast>("/subcontractors/" + subId + "/cashflow-forecast"),
+    aggregateForecast: () =>
+      request<AggregateCashFlowForecast>("/subcontractors/cashflow-forecast/aggregate"),
     // ===== Risk & Alerts (Phase 2) =====
     contractAlerts: (subId: number, contractId: number) =>
       request<ContractAlert[]>(
@@ -402,10 +408,21 @@ export const api = {
         API_V1 + "/documents/" + docId + "/download",
       delete: (docId: number) =>
         request<void>("/documents/" + docId, { method: "DELETE" }),
+      reExtract: (docId: number) =>
+        request<ContractDocument>("/documents/" + docId + "/re-extract", {
+          method: "POST",
+        }),
+      updateExtracted: (docId: number, data: Record<string, unknown>) =>
+        request<ContractDocument>("/documents/" + docId + "/extracted-data", {
+          method: "PATCH",
+          body: JSON.stringify(data),
+        }),
     },
     // ===== AI Insights (Phase 4) =====
-    aiInsights: (subId: number) =>
-      request<SubcontractorInsights>("/subcontractors/" + subId + "/ai-insights"),
+    aiInsights: (subId: number, forceRefresh: boolean = false) =>
+      request<SubcontractorInsights>(
+        "/subcontractors/" + subId + "/ai-insights" + (forceRefresh ? "?force_refresh=true" : "")
+      ),
   },
   workforce: {
     // ===== Positions =====

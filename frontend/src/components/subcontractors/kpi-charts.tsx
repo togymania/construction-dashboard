@@ -19,8 +19,10 @@ import {
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { formatRubCompact } from "@/lib/formatters";
+import { formatRubAxisTick, formatRubCompact } from "@/lib/formatters";
 import type { SubcontractorKPIs } from "@/types/subcontractor";
+import { AggregateForecastCard } from "@/components/subcontractors/aggregate-forecast-card";
+import { useT } from "@/lib/i18n/provider";
 
 // Shared color palette — matches budget/page.tsx convention
 const PIE_COLORS = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4"];
@@ -49,6 +51,7 @@ interface Props {
 }
 
 export function KpiCharts({ kpis }: Props) {
+  const { t } = useT();
   // Hooks must be called unconditionally — compute even when kpis is null.
   // We use empty arrays/objects as safe fallbacks.
 
@@ -128,7 +131,7 @@ export function KpiCharts({ kpis }: Props) {
       {/* 1. Payments by Status — Pie */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Payments by Status</CardTitle>
+          <CardTitle className="text-base">{t("subs.paymentsByStatus")}</CardTitle>
         </CardHeader>
         <CardContent>
           {paymentsData.length === 0 ? (
@@ -185,25 +188,27 @@ export function KpiCharts({ kpis }: Props) {
       {/* 2. Top 5 Subcontractors — Bar */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Top 5 Subcontractors by Value</CardTitle>
+          <CardTitle className="text-base">{t("subs.topByValue")}</CardTitle>
         </CardHeader>
         <CardContent>
           {topSubsData.length === 0 ? (
             <EmptyChart label="No subcontractors yet" />
           ) : (
             <ResponsiveContainer width="100%" height={260}>
-              <BarChart data={topSubsData} layout="vertical" margin={{ left: 20 }}>
+              <BarChart data={topSubsData} layout="vertical" margin={{ left: 8, right: 16, top: 4, bottom: 4 }}>
                 <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
                 <XAxis
                   type="number"
-                  tickFormatter={(v) => formatRubCompact(v)}
+                  tickFormatter={(v) => formatRubAxisTick(v)}
                   className="text-xs"
+                  tick={{ fontSize: 10 }}
                 />
                 <YAxis
                   type="category"
                   dataKey="name"
                   className="text-xs"
-                  width={120}
+                  width={160}
+                  tick={{ fontSize: 11 }}
                 />
                 <Tooltip
                   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -228,7 +233,7 @@ export function KpiCharts({ kpis }: Props) {
       {/* 3. Monthly Payments Trend — Area */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Monthly Payments (Last 6 Months)</CardTitle>
+          <CardTitle className="text-base">{t("subs.monthlyPayments")}</CardTitle>
         </CardHeader>
         <CardContent>
           {monthlyData.length === 0 ? (
@@ -243,10 +248,12 @@ export function KpiCharts({ kpis }: Props) {
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                <XAxis dataKey="month" className="text-xs" />
+                <XAxis dataKey="month" className="text-xs" tick={{ fontSize: 11 }} />
                 <YAxis
-                  tickFormatter={(v) => formatRubCompact(v)}
+                  tickFormatter={(v) => formatRubAxisTick(v)}
                   className="text-xs"
+                  tick={{ fontSize: 11 }}
+                  width={56}
                 />
                 <Tooltip
                   formatter={(v: unknown) =>
@@ -270,56 +277,8 @@ export function KpiCharts({ kpis }: Props) {
         </CardContent>
       </Card>
 
-      {/* 4. Contracts by Status — Donut */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Contracts by Status</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {contractsData.length === 0 ? (
-            <EmptyChart label="No contracts yet" />
-          ) : (
-            <ResponsiveContainer width="100%" height={260}>
-              <PieChart>
-                <Pie
-                  data={contractsData}
-                  dataKey="value"
-                  nameKey="name"
-                  cx="50%"
-                  cy="45%"
-                  innerRadius={55}
-                  outerRadius={85}
-                  paddingAngle={2}
-                  label={(entry) => {
-                    const pct = (entry.percent ?? 0) * 100;
-                    return pct >= 8 ? `${entry.value}` : "";
-                  }}
-                  labelLine={false}
-                >
-                  {contractsData.map((entry, index) => (
-                    <Cell
-                      key={`cell-${index}`}
-                      fill={
-                        CONTRACT_STATUS_COLORS[entry.rawStatus] ??
-                        PIE_COLORS[index % PIE_COLORS.length]
-                      }
-                      stroke="transparent"
-                    />
-                  ))}
-                </Pie>
-                <Tooltip
-                  contentStyle={{ borderRadius: 8, fontSize: 12 }}
-                />
-                <Legend
-                  verticalAlign="top"
-                  iconType="circle"
-                  wrapperStyle={{ fontSize: 12, paddingBottom: 8 }}
-                />
-              </PieChart>
-            </ResponsiveContainer>
-          )}
-        </CardContent>
-      </Card>
+      {/* 4. Aggregate 3-month Cash Flow Forecast (replaces "Contracts by Status") */}
+      <AggregateForecastCard />
     </div>
   );
 }
