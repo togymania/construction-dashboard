@@ -32,6 +32,7 @@ from app.schemas.budget import (
     BudgetItemUpdate,
     BudgetSummary,
 )
+from app.schemas.budget_variance import BudgetVarianceReport
 
 router = APIRouter(tags=["Budget Items"])
 
@@ -122,7 +123,9 @@ async def create_budget_item(
         project_id=project_id,
         category_id=category.id,
         description=payload.description,
+        cost_code=payload.cost_code,
         planned_amount=payload.planned_amount,
+        committed_amount=payload.committed_amount,
         notes=payload.notes,
     )
     db.add(item)
@@ -225,32 +228,60 @@ async def get_budget_summary(
     user: CurrentUser,
     db: DBSession,
 ) -> BudgetSummary:
+    """Return the project's budget summary.
+
+    "Spent" is computed from the **ledger** (entry_type=EXPENSE) rather
+    than the legacy ``expenses`` table -- the ledger is the source of
+    truth on this project. We treat as project-relevant any ledger row
+    whose linked contract belongs to this project, plus any unlinked
+    rows (assumed project-wide costs).
+    """
+    from app.models.ledger_entry import LedgerEntry, LedgerEntryType
+    from app.models.subcontractor import SubcontractorContract
+
     project = await _ensure_project_exists(db, project_id)
 
-    # Total planned (sum of all budget items)
-    total_planned_stmt = select(func.coalesce(func.sum(BudgetItem.planned_amount), 0)).where(
-        BudgetItem.project_id == project_id
-    )
+    # ---- Total planned (sum of all budget items) ----
+    total_planned_stmt = select(
+        func.coalesce(func.sum(BudgetItem.planned_amount), 0)
+    ).where(BudgetItem.project_id == project_id)
     total_planned: Decimal = (await db.execute(total_planned_stmt)).scalar_one()
 
-    # Total spent (paid expenses only)
-    total_spent_stmt = select(func.coalesce(func.sum(Expense.amount), 0)).where(
-        Expense.project_id == project_id,
-        Expense.status == ExpenseStatus.PAID,
+    # ---- Ledger-side filters: project's contracts OR unlinked entries ----
+    ledger_project_filter = (SubcontractorContract.id.is_(None)) | (
+        SubcontractorContract.project_id == project_id
     )
-    total_spent: Decimal = (await db.execute(total_spent_stmt)).scalar_one()
 
-    # Total pending (PENDING + APPROVED, not yet paid)
-    total_pending_stmt = select(func.coalesce(func.sum(Expense.amount), 0)).where(
-        Expense.project_id == project_id,
-        Expense.status.in_([ExpenseStatus.PENDING, ExpenseStatus.APPROVED]),
+    # ---- Total spent + record count (from ledger expense entries) ----
+    ledger_total_stmt = (
+        select(
+            func.coalesce(func.sum(LedgerEntry.amount), 0),
+            func.count(LedgerEntry.id),
+        )
+        .outerjoin(
+            SubcontractorContract,
+            SubcontractorContract.id == LedgerEntry.contract_id,
+        )
+        .where(
+            LedgerEntry.entry_type == LedgerEntryType.EXPENSE,
+            ledger_project_filter,
+        )
     )
-    total_pending: Decimal = (await db.execute(total_pending_stmt)).scalar_one()
+    total_spent_row = (await db.execute(ledger_total_stmt)).first()
+    total_spent: Decimal = Decimal(total_spent_row[0])
+    expense_records_count: int = int(total_spent_row[1])
+
+    # ---- Pending kept zero for now: ledger has no "pending" concept;
+    #      pending payments live on SubcontractorPayment, modelled
+    #      separately. Future: roll those in here too. ----
+    total_pending: Decimal = Decimal("0")
 
     remaining = total_planned - total_spent
-    utilization_pct = float(total_spent / total_planned * 100) if total_planned > 0 else 0.0
+    utilization_pct = (
+        float(total_spent / total_planned * 100) if total_planned > 0 else 0.0
+    )
 
-    # Per-category breakdown
+    # ---- Planned per category (still from budget_items) ----
     planned_per_cat_stmt = (
         select(
             BudgetItem.category_id,
@@ -262,19 +293,48 @@ async def get_budget_summary(
     planned_rows = (await db.execute(planned_per_cat_stmt)).all()
     planned_by_cat: dict[int, Decimal] = {row[0]: row[1] for row in planned_rows}
 
-    spent_per_cat_stmt = (
+    # ---- Spent per category: aggregate ledger by budget_code, then map
+    #      cost_code -> category_id via this project's budget_items. ----
+    ledger_per_code_stmt = (
         select(
-            Expense.category_id,
-            func.coalesce(func.sum(Expense.amount), 0).label("spent"),
+            LedgerEntry.budget_code,
+            func.coalesce(func.sum(LedgerEntry.amount), 0).label("total"),
+        )
+        .outerjoin(
+            SubcontractorContract,
+            SubcontractorContract.id == LedgerEntry.contract_id,
         )
         .where(
-            Expense.project_id == project_id,
-            Expense.status == ExpenseStatus.PAID,
+            LedgerEntry.entry_type == LedgerEntryType.EXPENSE,
+            LedgerEntry.budget_code.is_not(None),
+            ledger_project_filter,
         )
-        .group_by(Expense.category_id)
+        .group_by(LedgerEntry.budget_code)
     )
-    spent_rows = (await db.execute(spent_per_cat_stmt)).all()
-    spent_by_cat: dict[int, Decimal] = {row[0]: row[1] for row in spent_rows}
+    ledger_per_code_rows = (await db.execute(ledger_per_code_stmt)).all()
+    ledger_by_code: dict[str, Decimal] = {
+        (row[0] or "").strip().lower(): Decimal(row[1])
+        for row in ledger_per_code_rows
+        if row[0]
+    }
+
+    code_to_cat_stmt = select(BudgetItem.cost_code, BudgetItem.category_id).where(
+        BudgetItem.project_id == project_id,
+        BudgetItem.cost_code.is_not(None),
+    )
+    code_rows = (await db.execute(code_to_cat_stmt)).all()
+    cost_code_to_cat: dict[str, int] = {
+        (row[0] or "").strip().lower(): row[1]
+        for row in code_rows
+        if row[0]
+    }
+
+    spent_by_cat: dict[int, Decimal] = {}
+    for code, amt in ledger_by_code.items():
+        cat_id = cost_code_to_cat.get(code)
+        if cat_id is None:
+            continue
+        spent_by_cat[cat_id] = spent_by_cat.get(cat_id, Decimal("0")) + amt
 
     relevant_cat_ids = set(planned_by_cat.keys()) | set(spent_by_cat.keys())
     if relevant_cat_ids:
@@ -314,6 +374,7 @@ async def get_budget_summary(
         remaining=remaining,
         utilization_pct=utilization_pct,
         by_category=by_category,
+        expense_records_count=expense_records_count,
     )
 
 
@@ -326,25 +387,31 @@ _BUDGET_COLUMN_ALIASES: dict[str, list[str]] = {
         "категория",  # Cyrillic
         "budget category", "bütçe kategorisi",
     ],
+    "cost_code": [
+        "code", "cost code", "wbs", "wbs code", "item code",
+        "kod", "kalem kodu", "iş kalemi kodu",
+        "код", "шифр",
+    ],
     "description": [
         "item", "item name", "description", "desc",
         "kalem", "kalem adı", "açıklama",
         "наименование", "описание",
     ],
     "amount": [
-        "amount", "budget", "total", "planned",
-        "tutar", "bütçe", "miktar", "planlanan",
-        "сумма", "бюджет",
+        "amount", "budget", "total", "planned", "planned amount",
+        "tutar", "bütçe", "miktar", "planlanan", "planlanan tutar",
+        "сумма", "бюджет", "плановая",
+    ],
+    "committed_amount": [
+        "committed", "committed amount", "commitment", "po", "po amount",
+        "taahhüt", "taahhüt edilen", "kontrat tutarı",
+        "обязательство", "законтрактовано",
     ],
     "notes": [
         "notes", "note",
         "not", "açıklama 2",
         "комментарий", "примечание",
     ],
-    # Ignored on purpose (brief mentions Code/Cost Code/Kod as optional;
-    # we don't have a column for it yet, so any header alias matching
-    # this group is silently skipped).
-    "_ignored_code": ["code", "cost code", "kod", "код"],
 }
 
 
@@ -569,6 +636,34 @@ async def import_budget_items_from_excel(
                 if raw_notes and str(raw_notes).strip():
                     notes_val = str(raw_notes).strip()
 
+            # ---- Cost code (optional, but used for planned-vs-actual) ----
+            cost_code_val: str | None = None
+            if "cost_code" in header_map:
+                raw_code = row[header_map["cost_code"]]
+                if raw_code is not None and str(raw_code).strip():
+                    cost_code_val = str(raw_code).strip()[:50]
+
+            # ---- Committed amount (optional) ----
+            committed_val: _Decimal = _Decimal("0")
+            if "committed_amount" in header_map:
+                raw_committed = row[header_map["committed_amount"]]
+                if raw_committed is not None and str(raw_committed).strip() != "":
+                    try:
+                        committed_val = _Decimal(
+                            str(raw_committed).replace(",", "").replace(" ", "").strip()
+                        )
+                        if committed_val < 0:
+                            committed_val = _Decimal("0")
+                            warnings.append(BudgetImportRowWarning(
+                                row=row_idx,
+                                reason="Negative committed amount → treated as 0",
+                            ))
+                    except (_InvalidOperation, ValueError):
+                        warnings.append(BudgetImportRowWarning(
+                            row=row_idx,
+                            reason=f"Invalid committed amount '{raw_committed}' → 0",
+                        ))
+
             # ---- Duplicate detection ----
             dup_key = (cat_id, description.lower())
             if dup_key in existing_pairs:
@@ -590,7 +685,9 @@ async def import_budget_items_from_excel(
                 project_id=project_id,
                 category_id=cat_id,
                 description=description,
+                cost_code=cost_code_val,
                 planned_amount=amount,
+                committed_amount=committed_val,
                 notes=notes_val,
             )
             db.add(bi)
@@ -621,6 +718,206 @@ async def import_budget_items_from_excel(
                 deleted_count=0,
                 errors=errors + [BudgetImportRowError(
                     row=0, reason="Final commit failed - no rows imported"
+                )],
+                warnings=warnings,
+            )
+
+    return BudgetImportResult(
+        imported_count=imported,
+        skipped_count=len(errors) + len(warnings),
+        deleted_count=deleted_count,
+        errors=errors,
+        warnings=warnings,
+    )
+
+
+# ---------- Planned vs Actual variance (Faz 3) ----------
+
+
+@router.get(
+    "/projects/{project_id}/budget/variance",
+    response_model=BudgetVarianceReport,
+    summary="Planned vs actual report for every budget item on a project",
+)
+async def get_variance_report(
+    project_id: int,
+    user: CurrentUser,
+    db: DBSession,
+) -> BudgetVarianceReport:
+    """Return the project-wide planned vs actual breakdown.
+
+    Actuals are pulled from PAID expenses linked to the budget item, plus
+    EXPENSE-type ledger entries whose `budget_code` matches the item's
+    `cost_code` and whose contract belongs to this project (or is
+    project-wide / unlinked).
+    """
+    from app.services.budget_variance import build_variance_report
+
+    await _ensure_project_exists(db, project_id)
+    return await build_variance_report(db, project_id)
+
+
+# ---------- ÇMI-format Monart-only import (Faz 2 — Monart spesifik) ----------
+
+
+@router.post(
+    "/projects/{project_id}/budget-items/import-cmi",
+    response_model=BudgetImportResult,
+    summary="Import Monart's lines from a ÇMI-format master budget workbook",
+)
+async def import_cmi_monart(
+    project_id: int,
+    db: DBSession,
+    file: UploadFile = File(...),
+    sheet_name: str = Form("ЦМИ"),
+    responsible_filter: str = Form("Монарт"),
+    overwrite_mode: Literal["append", "replace"] = Form("append"),
+    user: User = Depends(require_roles(UserRole.ADMIN, UserRole.PROJECT_MANAGER)),
+) -> BudgetImportResult:
+    """Parse the ÇMI master sheet and import only the rows whose
+    "Bütçe sorumlusu" (column P) matches ``responsible_filter``.
+
+    Monart's 15 top-level work packages get auto-categorized via
+    ``monart_budget_parser.category_for(cost_code)`` (Bina, Yollar, Altyapı,
+    Haberleşme, Isıtma, Elektrik, Peyzaj, Aydınlatma, Diğer İnşaat).
+
+    Detail rows (cost code empty in the source) are NOT imported as separate
+    budget items — they are folded into the parent's ``notes`` field as a
+    bulleted breakdown so we don't double-count.
+    """
+    from app.services.monart_budget_parser import (
+        parse as parse_cmi,
+        category_for as cmi_category_for,
+        render_detail_note,
+    )
+
+    await _ensure_project_exists(db, project_id)
+
+    if not file.filename or not file.filename.lower().endswith(".xlsx"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Only .xlsx files are accepted",
+        )
+
+    max_bytes = settings.MAX_LEDGER_IMPORT_MB * 1024 * 1024  # ÇMI workbook is multi-MB
+    contents = await file.read()
+    if len(contents) > max_bytes:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"File exceeds {settings.MAX_LEDGER_IMPORT_MB} MB limit",
+        )
+
+    try:
+        report = parse_cmi(
+            contents,
+            sheet_name=sheet_name,
+            responsible_filter=responsible_filter,
+        )
+    except ValueError as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
+
+    # Replace mode: drop existing items first
+    deleted_count = 0
+    if overwrite_mode == "replace":
+        existing = (await db.execute(
+            select(BudgetItem).where(BudgetItem.project_id == project_id)
+        )).scalars().all()
+        deleted_count = len(existing)
+        for it in existing:
+            await db.delete(it)
+        await db.flush()
+
+    # Pre-load known categories so we know which auto-creates to warn about
+    known_category_ids: set[int] = {
+        cid for cid in (
+            await db.execute(select(BudgetCategory.id))
+        ).scalars().all()
+    }
+
+    # Pre-load existing (project_id, lower(cost_code)) pairs for dedup in append mode
+    existing_codes: set[str] = set()
+    if overwrite_mode == "append":
+        rows_check = (await db.execute(
+            select(BudgetItem.cost_code).where(
+                BudgetItem.project_id == project_id,
+                BudgetItem.cost_code.is_not(None),
+            )
+        )).all()
+        existing_codes = {(c or "").strip().lower() for (c,) in rows_check}
+
+    imported = 0
+    errors: list[BudgetImportRowError] = []
+    warnings: list[BudgetImportRowWarning] = []
+
+    for parsed in report.items:
+        try:
+            # Resolve category (auto-create when missing)
+            cat_name = cmi_category_for(parsed.cost_code)
+            try:
+                cat = await get_or_create_category(db, cat_name)
+            except ValueError:
+                errors.append(BudgetImportRowError(
+                    row=parsed.source_row, reason=f"Invalid category '{cat_name}'"
+                ))
+                continue
+
+            if cat.id not in known_category_ids:
+                warnings.append(BudgetImportRowWarning(
+                    row=parsed.source_row,
+                    reason=f"Auto-created category '{cat.name}'",
+                ))
+                known_category_ids.add(cat.id)
+
+            # Idempotency: skip if cost_code already imported for this project
+            code_key = (parsed.cost_code or "").strip().lower()
+            if code_key in existing_codes:
+                warnings.append(BudgetImportRowWarning(
+                    row=parsed.source_row,
+                    reason=f"Skipped duplicate cost code '{parsed.cost_code}'",
+                ))
+                continue
+            existing_codes.add(code_key)
+
+            # Build notes from detail rows
+            notes_val = render_detail_note(parsed) or None
+
+            bi = BudgetItem(
+                project_id=project_id,
+                category_id=cat.id,
+                description=parsed.description[:500],
+                cost_code=parsed.cost_code[:50] if parsed.cost_code else None,
+                planned_amount=parsed.planned_amount,
+                committed_amount=Decimal("0"),  # not in ÇMI source; user fills later
+                notes=notes_val,
+            )
+            db.add(bi)
+            try:
+                await db.flush()
+            except IntegrityError as ie:
+                await db.rollback()
+                errors.append(BudgetImportRowError(
+                    row=parsed.source_row,
+                    reason=f"DB error: {str(ie.orig)[:200]}",
+                ))
+                continue
+
+            imported += 1
+        except Exception as exc:
+            errors.append(BudgetImportRowError(
+                row=parsed.source_row, reason=str(exc)
+            ))
+
+    if imported > 0 or deleted_count > 0:
+        try:
+            await db.commit()
+        except IntegrityError:
+            await db.rollback()
+            return BudgetImportResult(
+                imported_count=0,
+                skipped_count=len(errors) + len(warnings) + imported,
+                deleted_count=0,
+                errors=errors + [BudgetImportRowError(
+                    row=0, reason="Final commit failed",
                 )],
                 warnings=warnings,
             )

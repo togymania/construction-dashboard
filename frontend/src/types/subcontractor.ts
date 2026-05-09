@@ -51,6 +51,8 @@ export interface Subcontractor {
   updated_at: string;
   active_contract_count: number;
   total_contract_value: string;   // Numeric -> string
+  /** Subcontractor-wide paid total: SubcontractorPayment.PAID + LedgerEntry.EXPENSE. */
+  total_paid?: string;
 }
 
 export interface SubcontractorListItem {
@@ -380,4 +382,53 @@ export interface SubcontractorInsights {
   subcontractor_id: number;
   insights: AIInsight[];
   overall_health: "good" | "at_risk" | "critical";
+}
+
+// ---------- Subcontractor Profile Report ("Firma Kartviziti") ----------
+
+export interface ProfileSection {
+  heading: string;
+  body: string;
+}
+
+export interface PenaltyPattern {
+  trigger: string;
+  penalty_type: string;
+  typical_amount: string | null;
+  occurrences: number;
+}
+
+export interface TimelineKeyDate {
+  date: string;
+  label: string;
+  description: string | null;
+  source_document: string | null;
+}
+
+export interface SubcontractorProfileReport {
+  subcontractor_id: number;
+  subcontractor_name: string;
+
+  company_overview: ProfileSection;
+  financial_summary: ProfileSection;
+  risk_profile: ProfileSection;
+  payment_terms_summary: ProfileSection;
+
+  total_contract_value: string;
+  total_paid: string;
+  pending_amount: string;
+  active_contract_count: number;
+  completed_contract_count: number;
+  avg_payment_delay_days: number | null;
+  risk_score: number | null;
+
+  penalty_patterns: PenaltyPattern[];
+  key_dates_timeline: TimelineKeyDate[];
+  aggregated_risk_flags: string[];
+
+  recommendations: string[];
+
+  source: "rule" | "llm" | "llm_mock";
+  documents_analyzed: number;
+  generated_at: string;
 }

@@ -1,15 +1,32 @@
-﻿"""Dashboard aggregation endpoints."""
+"""Dashboard aggregation endpoints.
+
+Two endpoints live here:
+
+* ``GET /dashboard/stats``         -- the four headline KPIs (count of
+  active projects, total budget, on-track count, open-risk count).
+* ``GET /dashboard/daily-briefing`` -- AI-narrated executive briefing for
+  the past 24 hours (Claude when ``ANTHROPIC_API_KEY`` is set, rule-based
+  fallback otherwise). Cached for 10 minutes; ``force_refresh=true``
+  bypasses.
+"""
 from decimal import Decimal
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 from sqlalchemy import func, select
 
 from app.api.deps import CurrentUser, DBSession
 from app.models.expense import Expense, ExpenseStatus
 from app.models.project import Project, ProjectHealth, ProjectStatus
-from app.schemas.dashboard import DashboardStats, KPIMetric
+from app.schemas.dashboard import DailyBriefing, DashboardStats, KPIMetric
 
 router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
+
+
+# Cache key for the daily briefing -- disjoint from the subcontractor
+# profile cache (sub_id + 1_000_000) and the project executive report
+# cache (project_id + 2_000_000). A negative integer can't collide with
+# any realistic id-derived key.
+_BRIEFING_CACHE_KEY = -42
 
 
 def _format_budget_rub(total: Decimal) -> str:
@@ -73,8 +90,15 @@ async def get_dashboard_stats(
     # Budget utilization across portfolio
     if total_budget > 0:
         utilization_pct = float(total_spent / total_budget * 100)
-        budget_subtitle = f"{utilization_pct:.1f}% used ({_format_budget_rub(total_spent)})"
-        budget_trend = "up" if utilization_pct < 80 else ("neutral" if utilization_pct < 100 else "down")
+        budget_subtitle = (
+            f"{utilization_pct:.1f}% used ({_format_budget_rub(total_spent)})"
+        )
+        if utilization_pct < 80:
+            budget_trend = "up"
+        elif utilization_pct < 100:
+            budget_trend = "neutral"
+        else:
+            budget_trend = "down"
     else:
         budget_subtitle = "No active budget"
         budget_trend = "neutral"
@@ -105,3 +129,43 @@ async def get_dashboard_stats(
             trend="down" if risk_count == 0 else "up",
         ),
     )
+
+
+@router.get(
+    "/daily-briefing",
+    response_model=DailyBriefing,
+    summary="Daily AI-generated executive briefing for the dashboard",
+)
+async def get_daily_briefing(
+    user: CurrentUser,
+    db: DBSession,
+    force_refresh: bool = Query(
+        False, description="Bypass cache and re-generate"
+    ),
+) -> DailyBriefing:
+    """Return today's executive briefing.
+
+    Cached via ``insights_cache`` (10-minute TTL). The Claude call is the
+    expensive part; the rule-based fallback is sub-second so the cache is
+    mostly there to avoid hammering the LLM provider. Pass
+    ``force_refresh=true`` to bypass it.
+    """
+    from app.services import insights_cache
+    from app.services.daily_briefing import build_daily_briefing
+
+    if not force_refresh:
+        cached = insights_cache.get(_BRIEFING_CACHE_KEY)
+        if cached is not None:
+            return cached  # type: ignore[return-value]
+
+    payload = await build_daily_briefing(db)
+    briefing = DailyBriefing(**payload)
+    insights_cache.set(_BRIEFING_CACHE_KEY, briefing)  # type: ignore[arg-type]
+    return briefing
+
+
+# -- padding so we always overwrite the previous on-disk size -------------
+# The dev sandbox occasionally fails to truncate when a smaller payload is
+# written, leaving stale bytes from the prior version at the tail. Keeping
+# every release of this module at least as long as the previous one
+# prevents that whole class of corruption. (See sprint log day 12.)

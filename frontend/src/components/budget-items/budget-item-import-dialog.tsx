@@ -32,7 +32,12 @@ interface Props {
   onSuccess: () => void;
 }
 
-const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5 MB
+type ImportFormat = "generic" | "cmi-monart";
+
+// 5 MB for the simple flat format, 25 MB for the master ÇMI workbook
+// (which can be ~5 MB on its own and we want headroom for revisions).
+const MAX_FILE_SIZE_GENERIC = 5 * 1024 * 1024;
+const MAX_FILE_SIZE_CMI = 25 * 1024 * 1024;
 
 function isValidExcel(name: string): boolean {
   return name.toLowerCase().endsWith(".xlsx");
@@ -47,14 +52,21 @@ export function BudgetItemImportDialog({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
   const [mode, setMode] = useState<BudgetImportMode>("append");
+  const [format, setFormat] = useState<ImportFormat>("generic");
+  const [responsibleFilter, setResponsibleFilter] = useState<string>("Монарт");
   const [confirmReplace, setConfirmReplace] = useState(false);
   const [importing, setImporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<BudgetImportResult | null>(null);
 
+  const maxFileSize =
+    format === "cmi-monart" ? MAX_FILE_SIZE_CMI : MAX_FILE_SIZE_GENERIC;
+
   function reset() {
     setFile(null);
     setMode("append");
+    setFormat("generic");
+    setResponsibleFilter("Монарт");
     setConfirmReplace(false);
     setError(null);
     setResult(null);
@@ -72,8 +84,9 @@ export function BudgetItemImportDialog({
       setFile(null);
       return;
     }
-    if (candidate.size > MAX_FILE_SIZE) {
-      setError("File size exceeds 5 MB");
+    if (candidate.size > maxFileSize) {
+      const limit = format === "cmi-monart" ? "25 MB" : "5 MB";
+      setError(`File size exceeds ${limit}`);
       setFile(null);
       return;
     }
@@ -107,7 +120,14 @@ export function BudgetItemImportDialog({
     setImporting(true);
     setError(null);
     try {
-      const res = await api.budgetItems.importExcel(projectId, file, mode);
+      const res =
+        format === "cmi-monart"
+          ? await api.budgetItems.importCmiMonart(projectId, file, {
+              sheetName: "ЦМИ",
+              responsibleFilter: responsibleFilter || "Монарт",
+              overwriteMode: mode,
+            })
+          : await api.budgetItems.importExcel(projectId, file, mode);
       setResult(res);
       if (res.imported_count > 0 || res.deleted_count > 0) {
         onSuccess();
@@ -240,6 +260,72 @@ export function BudgetItemImportDialog({
         </DialogHeader>
 
         <div className="space-y-4">
+          {/* Format selector */}
+          <div className="space-y-2">
+            <Label>Format</Label>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setFormat("generic");
+                  setFile(null);
+                  setError(null);
+                }}
+                className={`text-left rounded-lg border p-3 transition-colors ${
+                  format === "generic"
+                    ? "border-primary bg-primary/5"
+                    : "border-border hover:bg-muted/30"
+                }`}
+              >
+                <p className="text-sm font-medium">Standart format</p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Tek başlık satırı, kategori + açıklama + tutar.
+                </p>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setFormat("cmi-monart");
+                  setFile(null);
+                  setError(null);
+                }}
+                className={`text-left rounded-lg border p-3 transition-colors ${
+                  format === "cmi-monart"
+                    ? "border-primary bg-primary/5"
+                    : "border-border hover:bg-muted/30"
+                }`}
+              >
+                <p className="text-sm font-medium">ÇMI master bütçe</p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Hierarchical Cyrillic; Bütçe sorumlusu filtresiyle.
+                </p>
+              </button>
+            </div>
+          </div>
+
+          {/* Responsible filter — only relevant for the ÇMI format */}
+          {format === "cmi-monart" && (
+            <div className="space-y-2">
+              <Label htmlFor="responsible-filter">
+                Bütçe sorumlusu (substring eşleşme)
+              </Label>
+              <input
+                id="responsible-filter"
+                type="text"
+                value={responsibleFilter}
+                onChange={(e) => setResponsibleFilter(e.target.value)}
+                className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm"
+                placeholder="Монарт"
+              />
+              <p className="text-xs text-muted-foreground">
+                Yalnızca P kolonunda bu metni içeren satırlar kendi
+                bütçemize alınır. Varsayılan <code>Монарт</code> hem{" "}
+                <code>ООО Монарт Строй</code> hem{" "}
+                <code>ООО &quot;Монарт Строй&quot;</code> ile eşleşir.
+              </p>
+            </div>
+          )}
+
           {/* Drop zone */}
           <div
             className="flex flex-col items-center justify-center gap-3 rounded-lg border-2 border-dashed p-8 cursor-pointer transition-colors hover:border-primary/50 hover:bg-muted/30"
@@ -276,7 +362,7 @@ export function BudgetItemImportDialog({
                     Drop your Excel file here or click to browse
                   </p>
                   <p className="text-xs text-muted-foreground mt-1">
-                    .xlsx files up to 5 MB
+                    .xlsx files up to {format === "cmi-monart" ? "25 MB" : "5 MB"}
                   </p>
                 </div>
               </>

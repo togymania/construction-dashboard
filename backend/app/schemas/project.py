@@ -75,3 +75,32 @@ class ProjectResponse(ProjectBase):
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+# =============================================================================
+# Project Executive Report (Faz 5)
+# =============================================================================
+
+
+class ExecutiveReportSections(BaseModel):
+    """Six narrative sections that make up the executive report body."""
+
+    executive_summary: str
+    financial_status: str
+    critical_risks: str
+    subcontractor_performance: str
+    workforce_health: str
+    next_30_days: str
+
+
+class ProjectExecutiveReport(BaseModel):
+    """One-to-two page AI-narrated digest of a project's current state."""
+
+    project_id: int
+    project_name: str
+    generated_at: datetime
+    headline: str
+    sections: ExecutiveReportSections
+    recommended_actions: list[str] = Field(default_factory=list)
+    facts: dict = Field(default_factory=dict)
+    source: str = "rule"  # "rule" | "llm"

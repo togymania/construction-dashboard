@@ -24,3 +24,25 @@ export interface Project {
   created_at: string;
   updated_at: string;
 }
+
+// ---------- Executive Report (Faz 5) ----------
+
+export interface ExecutiveReportSections {
+  executive_summary: string;
+  financial_status: string;
+  critical_risks: string;
+  subcontractor_performance: string;
+  workforce_health: string;
+  next_30_days: string;
+}
+
+export interface ProjectExecutiveReport {
+  project_id: number;
+  project_name: string;
+  generated_at: string;
+  headline: string;
+  sections: ExecutiveReportSections;
+  recommended_actions: string[];
+  facts: Record<string, unknown>;
+  source: "rule" | "llm";
+}

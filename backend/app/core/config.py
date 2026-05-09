@@ -30,9 +30,12 @@ class Settings(BaseSettings):
 
     # Limits
     MAX_IMPORT_FILE_SIZE_MB: int = 5
+    MAX_LEDGER_IMPORT_MB: int = 25  # HIPODROM workbook is ~11MB
     MAX_PDF_SIZE_MB: int = 20
 
-    # LLM (Day 11) — leave empty to use mock responses (regex fallback always available)
+    # LLM — leave ANTHROPIC_API_KEY empty to use mock responses
+    # (regex fallback always available). When set, contract parsing and the
+    # subcontractor profile report ("firma kartviziti") flip to real Claude.
     ANTHROPIC_API_KEY: str = ""
     ANTHROPIC_MODEL: str = "claude-sonnet-4-5"
     LLM_TIMEOUT_SECONDS: int = 30

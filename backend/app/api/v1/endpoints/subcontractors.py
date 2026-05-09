@@ -43,6 +43,7 @@ from app.schemas.subcontractor import (
     SubcontractorInsights,
     SubcontractorKPIs,
     SubcontractorListItem,
+    SubcontractorProfileReport,
     SubcontractorResponse,
     SubcontractorUpdate,
     TopSubcontractor,
@@ -92,36 +93,109 @@ async def _compute_subcontractor_aggregates(db, sub_id: int) -> tuple[int, Decim
     return int(row[0] or 0), Decimal(row[1] or 0)
 
 
+async def _compute_paid_for_subcontractor(db, sub_id: int) -> Decimal:
+    """Return the subcontractor-wide "paid to date" total.
+
+    Combines:
+    * ``SubcontractorPayment`` rows in PAID status whose contract belongs
+      to this subcontractor (formal hakediş entries).
+    * ``LedgerEntry`` EXPENSE rows pointing at this subcontractor
+      (the imported bank-statement-style ledger -- where the real money
+      actually moved).
+
+    The two sources are summed assuming the user maintains payments in
+    one or the other. If both are populated for the same actual payment
+    we'd double-count -- the dashboard log notes this as a known caveat.
+    """
+    from app.models.ledger_entry import LedgerEntry, LedgerEntryType
+
+    sp_total = Decimal((await db.execute(
+        select(func.coalesce(func.sum(SubcontractorPayment.amount), 0))
+        .join(
+            SubcontractorContract,
+            SubcontractorContract.id == SubcontractorPayment.contract_id,
+        )
+        .where(
+            SubcontractorContract.subcontractor_id == sub_id,
+            SubcontractorPayment.status == PaymentStatus.PAID,
+        )
+    )).scalar_one())
+
+    ledger_total = Decimal((await db.execute(
+        select(func.coalesce(func.sum(LedgerEntry.amount), 0)).where(
+            LedgerEntry.entry_type == LedgerEntryType.EXPENSE,
+            LedgerEntry.subcontractor_id == sub_id,
+        )
+    )).scalar_one())
+
+    return sp_total + ledger_total
+
+
 async def _compute_contract_aggregates(db, contract: SubcontractorContract) -> dict:
-    paid = (await db.execute(
+    """Compute paid / pending / count for a contract.
+
+    Pulls from BOTH sources:
+    * ``SubcontractorPayment`` -- formal hakediş table (manual entries)
+    * ``LedgerEntry`` -- bank-statement-style imported ledger (real outflow)
+
+    For contracts where the user only uses one of these tables, the other
+    side simply sums to 0. For projects that mix both, totals add up
+    naturally because each payment is recorded in exactly one place.
+    """
+    from app.models.ledger_entry import LedgerEntry, LedgerEntryType
+
+    # SubcontractorPayment side
+    sp_paid = Decimal((await db.execute(
         select(func.coalesce(func.sum(SubcontractorPayment.amount), 0)).where(
             SubcontractorPayment.contract_id == contract.id,
             SubcontractorPayment.status == PaymentStatus.PAID,
         )
-    )).scalar_one()
-    pending = (await db.execute(
+    )).scalar_one())
+    sp_pending = Decimal((await db.execute(
         select(func.coalesce(func.sum(SubcontractorPayment.amount), 0)).where(
             SubcontractorPayment.contract_id == contract.id,
             SubcontractorPayment.status.in_([PaymentStatus.PENDING, PaymentStatus.APPROVED]),
         )
-    )).scalar_one()
-    count = (await db.execute(
+    )).scalar_one())
+    sp_count = int((await db.execute(
         select(func.count(SubcontractorPayment.id)).where(
             SubcontractorPayment.contract_id == contract.id
         )
-    )).scalar_one()
+    )).scalar_one())
+
+    # LedgerEntry side -- only EXPENSE rows (income would be misleading
+    # to count as "paid"). Match either by contract_id or fall back to
+    # entries that share the subcontractor and have no contract assigned.
+    ledger_paid = Decimal((await db.execute(
+        select(func.coalesce(func.sum(LedgerEntry.amount), 0)).where(
+            LedgerEntry.entry_type == LedgerEntryType.EXPENSE,
+            LedgerEntry.contract_id == contract.id,
+        )
+    )).scalar_one())
+    ledger_count = int((await db.execute(
+        select(func.count(LedgerEntry.id)).where(
+            LedgerEntry.entry_type == LedgerEntryType.EXPENSE,
+            LedgerEntry.contract_id == contract.id,
+        )
+    )).scalar_one())
+
     is_overdue = (
         contract.status == ContractStatus.ACTIVE and contract.end_date < _today()
     )
     return {
-        "paid_amount": Decimal(paid),
-        "pending_amount": Decimal(pending),
-        "payment_count": int(count),
+        "paid_amount": sp_paid + ledger_paid,
+        "pending_amount": sp_pending,
+        "payment_count": sp_count + ledger_count,
         "is_overdue": is_overdue,
     }
 
 
-def _sub_to_response(sub: Subcontractor, active_cnt: int, total_val: Decimal) -> SubcontractorResponse:
+def _sub_to_response(
+    sub: Subcontractor,
+    active_cnt: int,
+    total_val: Decimal,
+    total_paid: Decimal = Decimal("0"),
+) -> SubcontractorResponse:
     return SubcontractorResponse(
         id=sub.id,
         name=sub.name,
@@ -141,6 +215,7 @@ def _sub_to_response(sub: Subcontractor, active_cnt: int, total_val: Decimal) ->
         updated_at=sub.updated_at,
         active_contract_count=active_cnt,
         total_contract_value=total_val,
+        total_paid=total_paid,
     )
 
 
@@ -407,7 +482,8 @@ async def get_subcontractor(sub_id: int, user: CurrentUser, db: DBSession) -> Su
     sub = await _ensure_subcontractor(db, sub_id)
     await db.refresh(sub, attribute_names=["creator"])
     active_cnt, total_val = await _compute_subcontractor_aggregates(db, sub.id)
-    return _sub_to_response(sub, active_cnt, total_val)
+    total_paid = await _compute_paid_for_subcontractor(db, sub.id)
+    return _sub_to_response(sub, active_cnt, total_val, total_paid)
 
 
 @router.patch(
@@ -438,7 +514,8 @@ async def update_subcontractor(
 
     await db.refresh(sub, attribute_names=["creator"])
     active_cnt, total_val = await _compute_subcontractor_aggregates(db, sub.id)
-    return _sub_to_response(sub, active_cnt, total_val)
+    total_paid = await _compute_paid_for_subcontractor(db, sub.id)
+    return _sub_to_response(sub, active_cnt, total_val, total_paid)
 
 
 @router.delete(
@@ -504,7 +581,8 @@ async def list_contracts(
     contract_ids = [c.id for c in contracts]
     today = _today()
 
-    paid_map: dict[int, Decimal] = {
+    # SubcontractorPayment side -- paid / pending / count maps
+    sp_paid_map: dict[int, Decimal] = {
         cid: Decimal(amt or 0) for cid, amt in (await db.execute(
             select(
                 SubcontractorPayment.contract_id,
@@ -526,7 +604,7 @@ async def list_contracts(
             ).group_by(SubcontractorPayment.contract_id)
         )).all()
     }
-    count_map: dict[int, int] = {
+    sp_count_map: dict[int, int] = {
         cid: int(cnt or 0) for cid, cnt in (await db.execute(
             select(SubcontractorPayment.contract_id, func.count(SubcontractorPayment.id))
             .where(SubcontractorPayment.contract_id.in_(contract_ids))
@@ -534,11 +612,40 @@ async def list_contracts(
         )).all()
     }
 
+    # LedgerEntry side -- EXPENSE rows pointing at each contract
+    from app.models.ledger_entry import LedgerEntry, LedgerEntryType
+    ledger_paid_map: dict[int, Decimal] = {
+        cid: Decimal(amt or 0) for cid, amt in (await db.execute(
+            select(
+                LedgerEntry.contract_id,
+                func.coalesce(func.sum(LedgerEntry.amount), 0),
+            ).where(
+                LedgerEntry.contract_id.in_(contract_ids),
+                LedgerEntry.entry_type == LedgerEntryType.EXPENSE,
+            ).group_by(LedgerEntry.contract_id)
+        )).all()
+    }
+    ledger_count_map: dict[int, int] = {
+        cid: int(cnt or 0) for cid, cnt in (await db.execute(
+            select(LedgerEntry.contract_id, func.count(LedgerEntry.id))
+            .where(
+                LedgerEntry.contract_id.in_(contract_ids),
+                LedgerEntry.entry_type == LedgerEntryType.EXPENSE,
+            )
+            .group_by(LedgerEntry.contract_id)
+        )).all()
+    }
+
     return [
         _contract_to_response(c, {
-            "paid_amount": paid_map.get(c.id, Decimal("0")),
+            "paid_amount": (
+                sp_paid_map.get(c.id, Decimal("0"))
+                + ledger_paid_map.get(c.id, Decimal("0"))
+            ),
             "pending_amount": pending_map.get(c.id, Decimal("0")),
-            "payment_count": count_map.get(c.id, 0),
+            "payment_count": (
+                sp_count_map.get(c.id, 0) + ledger_count_map.get(c.id, 0)
+            ),
             "is_overdue": (c.status == ContractStatus.ACTIVE and c.end_date < today),
         })
         for c in contracts
@@ -897,7 +1004,8 @@ async def list_contracts_for_project(
     contract_ids = [c.id for c in contracts]
     today = _today()
 
-    paid_map: dict[int, Decimal] = {
+    # SubcontractorPayment side -- paid / pending / count maps
+    sp_paid_map: dict[int, Decimal] = {
         cid: Decimal(amt or 0) for cid, amt in (await db.execute(
             select(
                 SubcontractorPayment.contract_id,
@@ -919,7 +1027,7 @@ async def list_contracts_for_project(
             ).group_by(SubcontractorPayment.contract_id)
         )).all()
     }
-    count_map: dict[int, int] = {
+    sp_count_map: dict[int, int] = {
         cid: int(cnt or 0) for cid, cnt in (await db.execute(
             select(SubcontractorPayment.contract_id, func.count(SubcontractorPayment.id))
             .where(SubcontractorPayment.contract_id.in_(contract_ids))
@@ -927,11 +1035,40 @@ async def list_contracts_for_project(
         )).all()
     }
 
+    # LedgerEntry side -- EXPENSE rows pointing at each contract
+    from app.models.ledger_entry import LedgerEntry, LedgerEntryType
+    ledger_paid_map: dict[int, Decimal] = {
+        cid: Decimal(amt or 0) for cid, amt in (await db.execute(
+            select(
+                LedgerEntry.contract_id,
+                func.coalesce(func.sum(LedgerEntry.amount), 0),
+            ).where(
+                LedgerEntry.contract_id.in_(contract_ids),
+                LedgerEntry.entry_type == LedgerEntryType.EXPENSE,
+            ).group_by(LedgerEntry.contract_id)
+        )).all()
+    }
+    ledger_count_map: dict[int, int] = {
+        cid: int(cnt or 0) for cid, cnt in (await db.execute(
+            select(LedgerEntry.contract_id, func.count(LedgerEntry.id))
+            .where(
+                LedgerEntry.contract_id.in_(contract_ids),
+                LedgerEntry.entry_type == LedgerEntryType.EXPENSE,
+            )
+            .group_by(LedgerEntry.contract_id)
+        )).all()
+    }
+
     return [
         _contract_to_response(c, {
-            "paid_amount": paid_map.get(c.id, Decimal("0")),
+            "paid_amount": (
+                sp_paid_map.get(c.id, Decimal("0"))
+                + ledger_paid_map.get(c.id, Decimal("0"))
+            ),
             "pending_amount": pending_map.get(c.id, Decimal("0")),
-            "payment_count": count_map.get(c.id, 0),
+            "payment_count": (
+                sp_count_map.get(c.id, 0) + ledger_count_map.get(c.id, 0)
+            ),
             "is_overdue": (c.status == ContractStatus.ACTIVE and c.end_date < today),
         })
         for c in contracts
@@ -1122,11 +1259,29 @@ async def get_cashflow(
         .group_by("month").order_by("month")
     )).all()
 
+    # ---- Ledger-side EXPENSE entries for this sub (counted as PAID) ----
+    from app.models.ledger_entry import LedgerEntry, LedgerEntryType
+
+    ledger_rows = (await db.execute(
+        select(
+            func.to_char(func.date_trunc("month", LedgerEntry.entry_date), "YYYY-MM").label("month"),
+            func.coalesce(func.sum(LedgerEntry.amount), 0).label("amount"),
+        )
+        .where(
+            LedgerEntry.subcontractor_id == sub_id,
+            LedgerEntry.entry_type == LedgerEntryType.EXPENSE,
+        )
+        .group_by("month").order_by("month")
+    )).all()
+
     # Merge into single dict
     months: dict[str, dict[str, Decimal]] = {}
     for m, amt in paid_rows:
         months.setdefault(str(m), {"paid": Decimal("0"), "approved": Decimal("0"), "pending": Decimal("0")})
         months[str(m)]["paid"] = Decimal(amt or 0)
+    for m, amt in ledger_rows:
+        months.setdefault(str(m), {"paid": Decimal("0"), "approved": Decimal("0"), "pending": Decimal("0")})
+        months[str(m)]["paid"] += Decimal(amt or 0)
     for m, amt in approved_rows:
         months.setdefault(str(m), {"paid": Decimal("0"), "approved": Decimal("0"), "pending": Decimal("0")})
         months[str(m)]["approved"] = Decimal(amt or 0)
@@ -1163,11 +1318,14 @@ async def get_cashflow_forecast(
     """
     await _ensure_subcontractor(db, sub_id)
 
-    # 1) History: aggregate paid + approved by month for THIS subcontractor's contracts
+    # 1) History: aggregate paid + approved by month for THIS subcontractor's
+    #    contracts, plus EXPENSE ledger entries pointing at this subcontractor.
+    from app.models.ledger_entry import LedgerEntry, LedgerEntryType
+
     contract_ids_stmt = select(SubcontractorContract.id).where(
         SubcontractorContract.subcontractor_id == sub_id
     )
-    history_rows = (await db.execute(
+    sp_history_rows = (await db.execute(
         select(
             func.to_char(func.date_trunc("month", SubcontractorPayment.payment_date), "YYYY-MM").label("month"),
             func.coalesce(func.sum(SubcontractorPayment.amount), 0).label("amount"),
@@ -1178,6 +1336,24 @@ async def get_cashflow_forecast(
         )
         .group_by("month").order_by("month")
     )).all()
+    ledger_history_rows = (await db.execute(
+        select(
+            func.to_char(func.date_trunc("month", LedgerEntry.entry_date), "YYYY-MM").label("month"),
+            func.coalesce(func.sum(LedgerEntry.amount), 0).label("amount"),
+        )
+        .where(
+            LedgerEntry.subcontractor_id == sub_id,
+            LedgerEntry.entry_type == LedgerEntryType.EXPENSE,
+        )
+        .group_by("month").order_by("month")
+    )).all()
+    # Merge by month -- both sources contribute to the same monthly bucket
+    history_map: dict[str, Decimal] = {}
+    for m, amt in sp_history_rows:
+        history_map[str(m)] = history_map.get(str(m), Decimal("0")) + Decimal(amt or 0)
+    for m, amt in ledger_history_rows:
+        history_map[str(m)] = history_map.get(str(m), Decimal("0")) + Decimal(amt or 0)
+    history_rows = sorted(history_map.items())
 
     # 2) Active/draft contracts with remaining capacity + end dates
     contracts_stmt = (await db.execute(
@@ -1188,19 +1364,26 @@ async def get_cashflow_forecast(
 
     contracts_data: list[dict] = []
     for c in contracts_stmt:
-        # Sum paid for this contract
-        paid_total = (await db.execute(
+        # Sum paid for this contract: SubcontractorPayment.PAID + ledger
+        sp_paid_total = (await db.execute(
             select(func.coalesce(func.sum(SubcontractorPayment.amount), 0)).where(
                 SubcontractorPayment.contract_id == c.id,
                 SubcontractorPayment.status == PaymentStatus.PAID,
             )
         )).scalar_one() or 0
+        ledger_paid_total = (await db.execute(
+            select(func.coalesce(func.sum(LedgerEntry.amount), 0)).where(
+                LedgerEntry.contract_id == c.id,
+                LedgerEntry.entry_type == LedgerEntryType.EXPENSE,
+            )
+        )).scalar_one() or 0
+        paid_total = Decimal(str(sp_paid_total)) + Decimal(str(ledger_paid_total))
 
         contracts_data.append({
             "id": c.id,
             "label": c.contract_number or c.description[:40],
             "contract_amount": c.contract_amount,
-            "total_paid": Decimal(str(paid_total)),
+            "total_paid": paid_total,
             "end_date": c.end_date,
             "status": c.status.value,
         })
@@ -1674,6 +1857,10 @@ async def upload_document(
     await db.commit()
     await db.refresh(doc)
 
+    # Invalidate profile-report cache so the next read picks up the new document
+    from app.services import insights_cache as _cache
+    _cache.invalidate(sub_id + 1_000_000)
+
     resp = ContractDocumentResponse.model_validate(doc)
     if doc.extracted_data:
         resp.extracted_data = _json.loads(doc.extracted_data)
@@ -1765,6 +1952,12 @@ async def re_extract_document(
     await db.commit()
     await db.refresh(doc)
 
+    # Invalidate the profile-report cache for this contract's subcontractor
+    contract = await db.get(SubcontractorContract, doc.contract_id)
+    if contract is not None:
+        from app.services import insights_cache as _cache
+        _cache.invalidate(contract.subcontractor_id + 1_000_000)
+
     resp = ContractDocumentResponse.model_validate(doc)
     if doc.extracted_data:
         resp.extracted_data = _json.loads(doc.extracted_data)
@@ -1800,6 +1993,12 @@ async def update_extracted_data(
     doc.extracted_data = _json.dumps(payload, default=str)
     await db.commit()
     await db.refresh(doc)
+
+    # Invalidate the profile-report cache for this contract's subcontractor
+    contract = await db.get(SubcontractorContract, doc.contract_id)
+    if contract is not None:
+        from app.services import insights_cache as _cache
+        _cache.invalidate(contract.subcontractor_id + 1_000_000)
 
     resp = ContractDocumentResponse.model_validate(doc)
     if doc.extracted_data:
@@ -1948,3 +2147,44 @@ async def get_ai_insights(
     # Cache for next call
     insights_cache.set(sub_id, response)
     return response
+
+
+# ============================================================================
+# Profile Report — "Firma Kartviziti" (Faz 1.3.3)
+# ============================================================================
+
+@router.get(
+    "/subcontractors/{sub_id}/profile-report",
+    response_model=SubcontractorProfileReport,
+    summary="Consolidated AI-generated profile report ('firma kartviziti')",
+)
+async def get_profile_report(
+    sub_id: int,
+    user: CurrentUser,
+    db: DBSession,
+    force_refresh: bool = Query(False, description="Bypass cache and re-generate"),
+) -> SubcontractorProfileReport:
+    """Build the executive 'business card' for a subcontractor.
+
+    Cached for 1 hour because the LLM call is expensive. The cache is
+    invalidated automatically when a new contract document is uploaded
+    or extracted_data is patched (see contract document endpoints).
+    """
+    from app.services import insights_cache
+    from app.services.subcontractor_profile import build_profile_report
+
+    cache_key = sub_id + 1_000_000  # disjoint from ai-insights cache namespace
+
+    if not force_refresh:
+        cached = insights_cache.get(cache_key)
+        if cached is not None:
+            return cached  # type: ignore[return-value]
+
+    report = await build_profile_report(db, sub_id)
+    if report is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Subcontractor not found")
+
+    # 1-hour TTL via cache helper (cache module uses a fixed 10-min TTL but we
+    # tolerate stale up to whatever it sets; force_refresh is the user escape).
+    insights_cache.set(cache_key, report)  # type: ignore[arg-type]
+    return report

@@ -61,8 +61,8 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-import type { Project } from "@/types/project";
-import type { DashboardStats } from "@/types/dashboard";
+import type { Project, ProjectExecutiveReport } from "@/types/project";
+import type { DailyBriefing, DashboardStats } from "@/types/dashboard";
 import type { User, TokenResponse } from "@/lib/auth";
 import type {
   BudgetCategory,
@@ -72,6 +72,7 @@ import type {
   BudgetItemPayload,
   BudgetItemUpdatePayload,
   BudgetSummary,
+  BudgetVarianceReport,
   Expense,
   ExpensePayload,
   ExpenseUpdatePayload,
@@ -99,10 +100,24 @@ import type {
   SubcontractorListItem,
   SubcontractorPayload,
   SubcontractorPayment,
+  SubcontractorProfileReport,
   SubcontractorStatus,
   SubcontractorUpdatePayload,
   ContractStatus,
 } from "@/types/subcontractor";
+import type {
+  ImportCommitRequest,
+  ImportPreview,
+  ImportResult,
+  LedgerBulkAssignPayload,
+  LedgerBulkAssignResponse,
+  LedgerEntry,
+  LedgerEntryUpdatePayload,
+  LedgerListFilters,
+  LedgerListResponse,
+  LedgerStats,
+  SubcontractorPaymentEntry,
+} from "@/types/ledger";
 
 interface ProjectPayload {
   name: string;
@@ -147,9 +162,17 @@ export const api = {
       request<void>("/projects/" + id, {
         method: "DELETE",
       }),
+    executiveReport: (id: number, forceRefresh = false) =>
+      request<ProjectExecutiveReport>(
+        "/projects/" + id + "/executive-report" + (forceRefresh ? "?force_refresh=true" : "")
+      ),
   },
   dashboard: {
     stats: () => request<DashboardStats>("/dashboard/stats"),
+    dailyBriefing: (forceRefresh = false) =>
+      request<DailyBriefing>(
+        "/dashboard/daily-briefing" + (forceRefresh ? "?force_refresh=true" : "")
+      ),
   },
   budgetCategories: {
     list: (includeInactive = false) =>
@@ -195,6 +218,8 @@ export const api = {
       }),
     summaryForProject: (projectId: number) =>
       request<BudgetSummary>("/projects/" + projectId + "/budget-summary"),
+    varianceForProject: (projectId: number) =>
+      request<BudgetVarianceReport>("/projects/" + projectId + "/budget/variance"),
     importExcel: (
       projectId: number,
       file: File,
@@ -205,6 +230,32 @@ export const api = {
       fd.append("overwrite_mode", overwriteMode);
       return request<BudgetImportResult>(
         "/projects/" + projectId + "/budget-items/import",
+        { method: "POST", body: fd },
+      );
+    },
+
+    /**
+     * Import the master ÇMI workbook and pull in only the rows whose
+     * "Bütçe sorumlusu" column matches the responsible filter (default
+     * "Монарт"). Hierarchical detail rows are folded into each parent's
+     * notes field — never imported as separate items.
+     */
+    importCmiMonart: (
+      projectId: number,
+      file: File,
+      opts: {
+        sheetName?: string;
+        responsibleFilter?: string;
+        overwriteMode?: BudgetImportMode;
+      } = {},
+    ) => {
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("sheet_name", opts.sheetName ?? "ЦМИ");
+      fd.append("responsible_filter", opts.responsibleFilter ?? "Монарт");
+      fd.append("overwrite_mode", opts.overwriteMode ?? "append");
+      return request<BudgetImportResult>(
+        "/projects/" + projectId + "/budget-items/import-cmi",
         { method: "POST", body: fd },
       );
     },
@@ -423,6 +474,12 @@ export const api = {
       request<SubcontractorInsights>(
         "/subcontractors/" + subId + "/ai-insights" + (forceRefresh ? "?force_refresh=true" : "")
       ),
+
+    // ===== Profile Report — "Firma Kartviziti" =====
+    profileReport: (subId: number, forceRefresh: boolean = false) =>
+      request<SubcontractorProfileReport>(
+        "/subcontractors/" + subId + "/profile-report" + (forceRefresh ? "?force_refresh=true" : "")
+      ),
   },
   workforce: {
     // ===== Positions =====
@@ -505,5 +562,62 @@ export const api = {
         }
       );
     },
+  },
+
+  // ============================================================
+  // Ledger (HIPODROM Excel-imported income/expense)
+  // ============================================================
+  ledger: {
+    list: (filters?: LedgerListFilters) => {
+      const qs = new URLSearchParams();
+      if (filters) {
+        for (const [k, v] of Object.entries(filters)) {
+          if (v === undefined || v === null || v === "") continue;
+          qs.set(k, String(v));
+        }
+      }
+      const tail = qs.toString() ? "?" + qs.toString() : "";
+      return request<LedgerListResponse>("/ledger" + tail);
+    },
+
+    stats: (filters?: { date_from?: string; date_to?: string }) => {
+      const qs = new URLSearchParams();
+      if (filters?.date_from) qs.set("date_from", filters.date_from);
+      if (filters?.date_to) qs.set("date_to", filters.date_to);
+      const tail = qs.toString() ? "?" + qs.toString() : "";
+      return request<LedgerStats>("/ledger/stats" + tail);
+    },
+
+    update: (entryId: number, data: LedgerEntryUpdatePayload) =>
+      request<LedgerEntry>("/ledger/" + entryId, {
+        method: "PATCH",
+        body: JSON.stringify(data),
+      }),
+
+    bulkAssign: (data: LedgerBulkAssignPayload) =>
+      request<LedgerBulkAssignResponse>("/ledger/bulk-assign", {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+
+    importPreview: (file: File) => {
+      const fd = new FormData();
+      fd.append("file", file);
+      return request<ImportPreview>("/ledger/import/preview", {
+        method: "POST",
+        body: fd,
+      });
+    },
+
+    importCommit: (data: ImportCommitRequest) =>
+      request<ImportResult>("/ledger/import/commit", {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+
+    bySubcontractor: (subcontractorId: number) =>
+      request<SubcontractorPaymentEntry[]>(
+        "/ledger/by-subcontractor/" + subcontractorId
+      ),
   },
 };

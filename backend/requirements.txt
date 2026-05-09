@@ -23,10 +23,13 @@ python-dotenv==1.0.1
 
 # Excel import
 openpyxl==3.1.5
+rapidfuzz==3.10.1
 
-# PDF + LLM (Day 11)
+# PDF + LLM (Day 11+)
+# anthropic 0.39 used the old httpx<0.28 API (proxies kwarg). Modern
+# httpx removed it, so we follow the newer SDK that handles both.
 pdfplumber==0.11.4
-anthropic==0.39.0
+anthropic>=0.40.0
 
 # Dev & Testing
 pytest==8.3.4

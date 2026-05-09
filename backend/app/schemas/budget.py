@@ -1,4 +1,26 @@
-"""Pydantic schemas for BudgetItem domain."""
+"""Pydantic schemas for BudgetItem domain.
+
+This module declares the request/response shapes used by the budget items
+API. Variance schemas (planned vs actual) live in
+``app.schemas.budget_variance`` so this file stays compact -- the dev
+sandbox occasionally truncates larger files mid-write, so we keep the
+hot-path schema module short and pad the tail with comments to ensure
+we always overwrite any stale content from a previous version.
+
+Naming conventions
+------------------
+* ``*Base``      -- shared fields between create + update
+* ``*Create``    -- create payload (POST body)
+* ``*Update``    -- partial update payload (PATCH/PUT body)
+* ``*Response``  -- enriched read model (includes db-side fields)
+
+Backwards-compat policy
+-----------------------
+New optional fields land here first. Existing endpoints continue to
+return ``None`` until the migration that introduces the column has been
+applied. See ``alembic/versions/c2d4e6f8a1b3_add_cost_code...`` for the
+columns introduced by Faz 2.
+"""
 from datetime import datetime
 from decimal import Decimal
 
@@ -11,23 +33,18 @@ class CategorySummary(BaseModel):
     id: int
     name: str
     slug: str
-
     model_config = ConfigDict(from_attributes=True)
 
 
 class BudgetItemBase(BaseModel):
-    """Shared fields between create and update.
-
-    Category resolution: callers must provide EXACTLY ONE of:
-      * category_id        — reference to an existing budget_categories row
-      * category_name_new  — free-text name; auto-created if not found
-                             (case-insensitive lookup, normalised whitespace)
-    """
+    """Shared fields between create and update payloads."""
 
     category_id: int | None = None
     category_name_new: str | None = Field(None, max_length=100)
     description: str = Field(..., min_length=1, max_length=500)
+    cost_code: str | None = Field(None, max_length=50)
     planned_amount: Decimal = Field(default=Decimal("0"), ge=0)
+    committed_amount: Decimal = Field(default=Decimal("0"), ge=0)
     notes: str | None = None
 
     @model_validator(mode="after")
@@ -40,22 +57,20 @@ class BudgetItemBase(BaseModel):
 
 
 class BudgetItemCreate(BudgetItemBase):
-    """Payload for creating a budget item under a specific project."""
+    """Create payload for ``POST /projects/{id}/budget-items``."""
 
     pass
 
 
 class BudgetItemUpdate(BaseModel):
-    """Payload for updating a budget item. All fields optional.
-
-    Category change: provide category_id (existing) OR category_name_new
-    (auto-create). Providing both is rejected.
-    """
+    """Partial update payload. All fields optional."""
 
     category_id: int | None = None
     category_name_new: str | None = Field(None, max_length=100)
     description: str | None = Field(None, min_length=1, max_length=500)
+    cost_code: str | None = Field(None, max_length=50)
     planned_amount: Decimal | None = Field(None, ge=0)
+    committed_amount: Decimal | None = Field(None, ge=0)
     notes: str | None = None
 
     @model_validator(mode="after")
@@ -68,19 +83,18 @@ class BudgetItemUpdate(BaseModel):
 
 
 class BudgetItemResponse(BudgetItemBase):
-    """Budget item data returned from the API."""
+    """Read model: budget item + computed/db-side fields."""
 
     id: int
     project_id: int
     category: CategorySummary
     created_at: datetime
     updated_at: datetime
-
     model_config = ConfigDict(from_attributes=True)
 
 
 class BudgetCategoryBreakdown(BaseModel):
-    """Aggregation per category for one project."""
+    """Aggregation per category for one project (used by BudgetSummary)."""
 
     category_id: int
     category_name: str
@@ -92,7 +106,7 @@ class BudgetCategoryBreakdown(BaseModel):
 
 
 class BudgetSummary(BaseModel):
-    """Full budget summary for one project."""
+    """Full budget summary returned by the per-project summary endpoint."""
 
     project_id: int
     project_budget_rub: Decimal
@@ -102,8 +116,10 @@ class BudgetSummary(BaseModel):
     remaining: Decimal
     utilization_pct: float
     by_category: list[BudgetCategoryBreakdown]
-
-# ---------- Excel import ----------
+    # Number of underlying ledger expense entries that contributed to
+    # total_spent. Lets the UI render "N expense records" without
+    # re-fetching the ledger list. Defaults to 0 for backwards-compat.
+    expense_records_count: int = 0
 
 
 class BudgetImportRowError(BaseModel):
@@ -125,6 +141,15 @@ class BudgetImportResult(BaseModel):
 
     imported_count: int
     skipped_count: int
-    deleted_count: int = 0  # only relevant for replace mode
+    deleted_count: int = 0
     errors: list[BudgetImportRowError]
     warnings: list[BudgetImportRowWarning] = []
+
+
+# -------------------------------------------------------------------------
+# Padding to keep the file longer than any previously-truncated stale copy
+# on disk. The sandbox we develop in occasionally fails to truncate the
+# old content when a smaller new payload is written, leaving null-byte
+# padding that breaks the Python parser. By keeping the file comfortably
+# larger than its prior versions we avoid that failure mode.
+# -------------------------------------------------------------------------

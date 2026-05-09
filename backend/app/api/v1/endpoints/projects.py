@@ -8,6 +8,7 @@ from app.models.project import Project
 from app.models.user import User, UserRole
 from app.schemas.project import (
     ProjectCreate,
+    ProjectExecutiveReport,
     ProjectResponse,
     ProjectUpdate,
 )
@@ -171,3 +172,45 @@ async def delete_project(
 
     project.is_active = False
     await db.commit()
+
+
+# ---------- Executive Report (Faz 5) ----------
+
+
+# Cache key offset for executive report — disjoint from sub profile (>1M)
+# and dashboard briefing (-42).
+_EXEC_REPORT_KEY_OFFSET = 2_000_000
+
+
+@router.get(
+    "/{project_id}/executive-report",
+    response_model=ProjectExecutiveReport,
+    summary="AI-narrated 1-2 page executive report for the project",
+)
+async def get_executive_report(
+    project_id: int,
+    user: CurrentUser,
+    db: DBSession,
+    force_refresh: bool = Query(False, description="Bypass cache and re-generate"),
+) -> ProjectExecutiveReport:
+    """Build the executive digest for a project.
+
+    Cached via ``insights_cache`` (10-min TTL). The Claude path is the
+    expensive one; rule-based fallback is sub-second.
+    """
+    from app.services import insights_cache
+    from app.services.project_executive_report import build_executive_report
+
+    cache_key = project_id + _EXEC_REPORT_KEY_OFFSET
+    if not force_refresh:
+        cached = insights_cache.get(cache_key)
+        if cached is not None:
+            return cached  # type: ignore[return-value]
+
+    payload = await build_executive_report(db, project_id)
+    if payload is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")
+
+    report = ProjectExecutiveReport(**payload)
+    insights_cache.set(cache_key, report)  # type: ignore[arg-type]
+    return report

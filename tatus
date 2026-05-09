@@ -1,0 +1,63 @@
+warning: in the working copy of 'backend/app/api/v1/endpoints/dashboard.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'backend/app/api/v1/endpoints/projects.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'backend/app/api/v1/endpoints/subcontractors.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'backend/app/api/v1/router.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'backend/app/models/__init__.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'backend/app/models/budget.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'backend/app/schemas/budget.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'backend/app/schemas/dashboard.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'backend/app/schemas/project.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'backend/app/schemas/subcontractor.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'frontend/src/app/(dashboard)/page.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'frontend/src/app/(dashboard)/projects/[id]/budget/page.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'frontend/src/app/(dashboard)/projects/page.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'frontend/src/app/(dashboard)/reports/page.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'frontend/src/app/(dashboard)/risks/page.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'frontend/src/app/(dashboard)/schedule/page.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'frontend/src/app/(dashboard)/subcontractors/[id]/contracts/[contractId]/page.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'frontend/src/app/(dashboard)/subcontractors/[id]/page.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'frontend/src/app/(dashboard)/subcontractors/page.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'frontend/src/app/(dashboard)/workforce/page.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'frontend/src/components/budget-items/budget-item-import-dialog.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'frontend/src/components/layout/sidebar.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'frontend/src/components/subcontractors/subcontractor-documents-tab.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'frontend/src/lib/api-client.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'frontend/src/lib/i18n/translations.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'frontend/src/types/budget.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'frontend/src/types/dashboard.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'frontend/src/types/project.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'frontend/src/types/subcontractor.ts', LF will be replaced by CRLF the next time Git touches it
+ backend/app/api/v1/endpoints/budget_items.py       | 359 [32m++++++++++[m[31m--[m
+ backend/app/api/v1/endpoints/dashboard.py          |  74 [32m++[m[31m-[m
+ backend/app/api/v1/endpoints/projects.py           |  43 [32m++[m
+ backend/app/api/v1/endpoints/subcontractors.py     | 290 [32m+++++++++[m[31m-[m
+ backend/app/api/v1/router.py                       |   3 [32m+[m[31m-[m
+ backend/app/core/config.py                         |   5 [32m+[m[31m-[m
+ backend/app/models/__init__.py                     |   3 [32m+[m
+ backend/app/models/budget.py                       |  39 [32m+[m[31m-[m
+ backend/app/schemas/budget.py                      |  71 [32m++[m[31m-[m
+ backend/app/schemas/dashboard.py                   |  17 [32m+[m
+ backend/app/schemas/project.py                     |  29 [32m+[m
+ backend/app/schemas/subcontractor.py               |  75 [32m+++[m
+ backend/requirements.txt                           |   7 [32m+[m[31m-[m
+ docs/sprint-log.md                                 | 318 [32m+++++++++++[m
+ frontend/src/app/(dashboard)/page.tsx              |   4 [32m+[m
+ .../app/(dashboard)/projects/[id]/budget/page.tsx  |  34 [32m+[m[31m-[m
+ frontend/src/app/(dashboard)/projects/page.tsx     |  15 [32m+[m[31m-[m
+ frontend/src/app/(dashboard)/reports/page.tsx      |  16 [32m+[m[31m-[m
+ frontend/src/app/(dashboard)/risks/page.tsx        |  16 [32m+[m[31m-[m
+ frontend/src/app/(dashboard)/schedule/page.tsx     |  16 [32m+[m[31m-[m
+ .../[id]/contracts/[contractId]/page.tsx           | 535 [32m+[m[31m-----------------[m
+ .../app/(dashboard)/subcontractors/[id]/page.tsx   | 405 [32m+[m[31m-------------[m
+ .../src/app/(dashboard)/subcontractors/page.tsx    | 352 [32m+[m[31m-----------[m
+ frontend/src/app/(dashboard)/workforce/page.tsx    | 615 [32m+[m[31m--------------------[m
+ .../budget-items/budget-item-import-dialog.tsx     |  96 [32m+++[m[31m-[m
+ frontend/src/components/layout/sidebar.tsx         | 207 [32m+++++[m[31m--[m
+ .../subcontractors/subcontractor-documents-tab.tsx |   4 [32m+[m[31m-[m
+ frontend/src/lib/api-client.ts                     | 118 [32m+++[m[31m-[m
+ frontend/src/lib/i18n/translations.ts              | 197 [32m+++++++[m
+ frontend/src/types/budget.ts                       |  35 [32m++[m
+ frontend/src/types/dashboard.ts                    |  12 [32m+[m
+ frontend/src/types/project.ts                      |  22 [32m+[m
+ frontend/src/types/subcontractor.ts                |  51 [32m++[m
+ 33 files changed, 2006 insertions(+), 2077 deletions(-)

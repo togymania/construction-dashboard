@@ -163,6 +163,10 @@ export default function ProjectsPage() {
     router.push(`/projects/${project.id}/budget`);
   }
 
+  function handleOpenProject(project: Project) {
+    router.push(`/projects/${project.id}`);
+  }
+
   async function handleConfirmDelete() {
     if (!deletingProject) return;
     setIsDeleting(true);
@@ -257,7 +261,11 @@ export default function ProjectsPage() {
                   const pct = utilization[p.id] ?? null;
                   const badge = getUtilizationBadge(pct);
                   return (
-                    <TableRow key={p.id}>
+                    <TableRow
+                      key={p.id}
+                      className="cursor-pointer hover:bg-muted/40"
+                      onClick={() => handleOpenProject(p)}
+                    >
                       <TableCell className="font-medium">{p.name}</TableCell>
                       <TableCell>
                         <Badge variant={STATUS_VARIANT[p.status]} className="text-xs">
@@ -288,7 +296,7 @@ export default function ProjectsPage() {
                       <TableCell className="text-sm text-muted-foreground">
                         {p.owner.full_name}
                       </TableCell>
-                      <TableCell>
+                      <TableCell onClick={(e) => e.stopPropagation()}>
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
                             <Button variant="ghost" size="icon" className="h-8 w-8">
@@ -297,6 +305,9 @@ export default function ProjectsPage() {
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
+                            <DropdownMenuItem onClick={() => handleOpenProject(p)}>
+                              Open Project
+                            </DropdownMenuItem>
                             <DropdownMenuItem onClick={() => handleViewBudget(p)}>
                               View Budget
                             </DropdownMenuItem>

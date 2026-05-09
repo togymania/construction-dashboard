@@ -24,6 +24,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { api } from "@/lib/api-client";
 import type { Project } from "@/types/project";
 import type { KPIMetric, DashboardStats } from "@/types/dashboard";
+import { DailyBriefingCard } from "@/components/dashboard/daily-briefing-card";
 
 const kpiIcons = {
   active_projects: Briefcase,
@@ -111,6 +112,9 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-6">
+      {/* AI Daily Briefing — top of dashboard */}
+      <DailyBriefingCard />
+
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         {isLoading || !stats ? (
           <>

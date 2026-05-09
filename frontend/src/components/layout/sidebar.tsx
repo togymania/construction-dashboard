@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import * as React from "react";
 import Link from "next/link";
@@ -6,13 +6,11 @@ import { usePathname } from "next/navigation";
 import {
   LayoutDashboard,
   Briefcase,
-  Calendar,
-  AlertTriangle,
-  FileBarChart,
   Settings,
   HardHat,
-  Users,
   Tags,
+  PanelLeftClose,
+  PanelLeft,
 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
@@ -22,14 +20,12 @@ import { useUser } from "@/components/providers/user-provider";
 import { useT } from "@/lib/i18n/provider";
 
 // `tKey` is the i18n key; `name` is a fallback used only if t() misses.
+// Top-level navigation is intentionally minimal: Dashboard + Projects.
+// Module pages (Subcontractors / Workforce / Expenses / Schedule / Risks / Reports)
+// are project-scoped and live under /projects/[id]/* — see ProjectSidebar.
 const navigation = [
   { tKey: "nav.dashboard", name: "Dashboard", href: "/", icon: LayoutDashboard },
   { tKey: "nav.projects", name: "Projects", href: "/projects", icon: Briefcase },
-  { tKey: "nav.subcontractors", name: "Subcontractors", href: "/subcontractors", icon: HardHat },
-  { tKey: "nav.workforce", name: "Workforce", href: "/workforce", icon: Users },
-  { tKey: "nav.schedule", name: "Schedule", href: "/schedule", icon: Calendar },
-  { tKey: "nav.risks", name: "Risks", href: "/risks", icon: AlertTriangle },
-  { tKey: "nav.reports", name: "Reports", href: "/reports", icon: FileBarChart },
 ];
 
 const adminNavigation = [
@@ -41,6 +37,8 @@ const adminNavigation = [
     requiredRoles: ["admin", "project_manager"] as const,
   },
 ];
+
+const STORAGE_KEY = "ch.sidebar.collapsed";
 
 function getInitials(fullName: string): string {
   const parts = fullName.trim().split(/\s+/);
@@ -56,10 +54,59 @@ function formatRole(role: string): string {
     .join(" ");
 }
 
+/**
+ * Read the persisted collapsed pref. We use a module-level read once on
+ * mount; further updates are state-driven.
+ */
+function readPersistedCollapsed(): boolean | null {
+  if (typeof window === "undefined") return null;
+  const raw = window.localStorage.getItem(STORAGE_KEY);
+  if (raw === "true") return true;
+  if (raw === "false") return false;
+  return null;
+}
+
 export function Sidebar({ className }: { className?: string }) {
   const pathname = usePathname();
   const { user } = useUser();
   const { t } = useT();
+
+  // Auto-collapse heuristic: when inside a project, default to collapsed
+  // so the project sub-sidebar gets more room. Manual toggle overrides
+  // this for the lifetime of the localStorage entry.
+  const isInProject = /^\/projects\/\d+/.test(pathname);
+
+  const [collapsed, setCollapsed] = React.useState<boolean>(isInProject);
+  const [hydrated, setHydrated] = React.useState(false);
+
+  // Hydrate once on mount: prefer persisted value, otherwise fall back to
+  // the route-based heuristic.
+  React.useEffect(() => {
+    const persisted = readPersistedCollapsed();
+    setCollapsed(persisted ?? isInProject);
+    setHydrated(true);
+    // We deliberately don't depend on isInProject — only initial route matters.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // When the user navigates *into* a project from outside, soft-collapse if
+  // they haven't explicitly set a pref yet. If they have a pref, respect it.
+  React.useEffect(() => {
+    if (!hydrated) return;
+    if (readPersistedCollapsed() === null) {
+      setCollapsed(isInProject);
+    }
+  }, [isInProject, hydrated]);
+
+  function toggle() {
+    setCollapsed((c) => {
+      const next = !c;
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem(STORAGE_KEY, String(next));
+      }
+      return next;
+    });
+  }
 
   const visibleAdminLinks = adminNavigation.filter(
     (item) => user && (item.requiredRoles as readonly string[]).includes(user.role)
@@ -68,67 +115,119 @@ export function Sidebar({ className }: { className?: string }) {
   return (
     <aside
       className={cn(
-        "flex h-full w-64 flex-col border-r bg-sidebar text-sidebar-foreground",
+        "flex h-full flex-col border-r bg-sidebar text-sidebar-foreground transition-[width] duration-200 ease-in-out",
+        collapsed ? "w-14" : "w-64",
         className
       )}
     >
-      <div className="flex h-16 items-center gap-2 border-b px-6">
-        <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary text-primary-foreground">
-          <HardHat className="h-4 w-4" />
-        </div>
-        <span className="font-semibold tracking-tight">ConstructHub</span>
+      {/* Brand row + collapse toggle */}
+      <div
+        className={cn(
+          "flex h-16 items-center border-b",
+          collapsed ? "justify-center px-2" : "justify-between px-4"
+        )}
+      >
+        {collapsed ? (
+          <button
+            type="button"
+            onClick={toggle}
+            title="Expand sidebar"
+            className="flex h-9 w-9 items-center justify-center rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+          >
+            <HardHat className="h-4 w-4" />
+          </button>
+        ) : (
+          <>
+            <div className="flex items-center gap-2 min-w-0">
+              <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary text-primary-foreground shrink-0">
+                <HardHat className="h-4 w-4" />
+              </div>
+              <span className="font-semibold tracking-tight truncate">
+                ConstructHub
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={toggle}
+              title="Collapse sidebar"
+              className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-primary/10 hover:text-foreground transition-colors"
+            >
+              <PanelLeftClose className="h-4 w-4" />
+            </button>
+          </>
+        )}
       </div>
 
-      <nav className="flex-1 space-y-1 p-3">
+      {/* Main nav */}
+      <nav className={cn("flex-1 space-y-1", collapsed ? "p-2" : "p-3")}>
         {navigation.map((item) => {
           const isActive =
             item.href === "/"
               ? pathname === "/"
               : pathname.startsWith(item.href);
           const Icon = item.icon;
+          const label = t(item.tKey) || item.name;
 
           return (
             <Link
               key={item.name}
               href={item.href}
+              title={collapsed ? label : undefined}
               className={cn(
-                "group relative flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-all duration-300",
+                "group relative flex items-center rounded-md text-sm font-medium transition-all duration-300",
                 "before:absolute before:left-0 before:top-1/2 before:-translate-y-1/2 before:rounded-r-full before:transition-all before:duration-300",
+                collapsed ? "justify-center h-10 w-10 mx-auto" : "gap-3 px-3 py-2",
                 isActive
                   ? "bg-primary/10 text-foreground before:h-6 before:w-[3px] before:bg-primary before:shadow-[0_0_12px_rgba(99,102,241,0.6)]"
                   : "text-muted-foreground hover:bg-primary/5 hover:text-foreground before:h-0 before:w-[3px] before:bg-transparent"
               )}
             >
-              <Icon className={cn("h-4 w-4 transition-colors duration-300", isActive && "text-primary")} />
-              {t(item.tKey)}
+              <Icon
+                className={cn(
+                  "h-4 w-4 transition-colors duration-300",
+                  isActive && "text-primary"
+                )}
+              />
+              {!collapsed && <span>{label}</span>}
             </Link>
           );
         })}
 
         {visibleAdminLinks.length > 0 && (
           <>
-            <div className="pt-4 pb-1">
-              <p className="px-3 text-[10px] font-semibold text-muted-foreground/60 uppercase tracking-[0.2em]">
-                Admin
-              </p>
-            </div>
+            {!collapsed && (
+              <div className="pt-4 pb-1">
+                <p className="px-3 text-[10px] font-semibold text-muted-foreground/60 uppercase tracking-[0.2em]">
+                  Admin
+                </p>
+              </div>
+            )}
+            {collapsed && <div className="my-2 mx-2 border-t border-border/40" />}
             {visibleAdminLinks.map((item) => {
               const isActive = pathname.startsWith(item.href);
               const Icon = item.icon;
+              const label = t(item.tKey) || item.name;
               return (
                 <Link
                   key={item.name}
                   href={item.href}
+                  title={collapsed ? label : undefined}
                   className={cn(
-                    "group relative flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-all duration-300",
+                    "group relative flex items-center rounded-md text-sm font-medium transition-all duration-300",
                     "before:absolute before:left-0 before:top-1/2 before:-translate-y-1/2 before:rounded-r-full before:transition-all before:duration-300",
+                    collapsed ? "justify-center h-10 w-10 mx-auto" : "gap-3 px-3 py-2",
                     isActive
                       ? "bg-primary/10 text-foreground before:h-6 before:w-[3px] before:bg-primary before:shadow-[0_0_12px_rgba(99,102,241,0.6)]"
                       : "text-muted-foreground hover:bg-primary/5 hover:text-foreground before:h-0 before:w-[3px] before:bg-transparent"
                   )}
                 >
-                  <Icon className={cn("h-4 w-4 transition-colors duration-300", isActive && "text-primary")} />
-                  {t(item.tKey)}
+                  <Icon
+                    className={cn(
+                      "h-4 w-4 transition-colors duration-300",
+                      isActive && "text-primary"
+                    )}
+                  />
+                  {!collapsed && <span>{label}</span>}
                 </Link>
               );
             })}
@@ -138,28 +237,56 @@ export function Sidebar({ className }: { className?: string }) {
 
       <Separator />
 
-      <div className="p-3 space-y-1">
+      {/* Footer: settings + user */}
+      <div className={cn("space-y-1", collapsed ? "p-2" : "p-3")}>
         <Link
           href="/settings"
-          className="group flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-muted-foreground transition-all duration-300 hover:bg-primary/5 hover:text-foreground"
+          title={collapsed ? "Settings" : undefined}
+          className={cn(
+            "group flex items-center rounded-md text-sm font-medium text-muted-foreground transition-all duration-300 hover:bg-primary/5 hover:text-foreground",
+            collapsed ? "justify-center h-10 w-10 mx-auto" : "gap-3 px-3 py-2"
+          )}
         >
           <Settings className="h-4 w-4 transition-colors duration-300 group-hover:text-primary" />
-          Settings
+          {!collapsed && "Settings"}
         </Link>
 
-        <div className="flex items-center gap-3 rounded-md px-3 py-2">
+        <div
+          className={cn(
+            "flex items-center rounded-md",
+            collapsed ? "justify-center p-1" : "gap-3 px-3 py-2"
+          )}
+          title={
+            collapsed && user
+              ? `${user.full_name} · ${formatRole(user.role)}`
+              : undefined
+          }
+        >
           <Avatar className="h-8 w-8">
             <AvatarFallback>{user ? getInitials(user.full_name) : "?"}</AvatarFallback>
           </Avatar>
-          <div className="flex flex-col min-w-0">
-            <span className="text-sm font-medium truncate">
-              {user?.full_name ?? "Loading..."}
-            </span>
-            <span className="text-xs text-muted-foreground truncate">
-              {user ? formatRole(user.role) : ""}
-            </span>
-          </div>
+          {!collapsed && (
+            <div className="flex flex-col min-w-0">
+              <span className="text-sm font-medium truncate">
+                {user?.full_name ?? "Loading..."}
+              </span>
+              <span className="text-xs text-muted-foreground truncate">
+                {user ? formatRole(user.role) : ""}
+              </span>
+            </div>
+          )}
         </div>
+
+        {collapsed && (
+          <button
+            type="button"
+            onClick={toggle}
+            title="Expand sidebar"
+            className="mt-1 flex h-9 w-9 mx-auto items-center justify-center rounded-md text-muted-foreground hover:bg-primary/10 hover:text-foreground transition-colors"
+          >
+            <PanelLeft className="h-4 w-4" />
+          </button>
+        )}
       </div>
     </aside>
   );

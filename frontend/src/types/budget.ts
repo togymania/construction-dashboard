@@ -39,7 +39,9 @@ export interface BudgetItem {
   category_id: number;
   category: CategorySummary;
   description: string;
+  cost_code: string | null;
   planned_amount: string;
+  committed_amount: string;
   notes: string | null;
   created_at: string;
   updated_at: string;
@@ -68,6 +70,8 @@ export interface BudgetSummary {
   remaining: string;
   utilization_pct: number;
   by_category: BudgetCategoryBreakdown[];
+  /** Number of ledger expense entries that contributed to total_spent. */
+  expense_records_count?: number;
 }
 
 // ---------- Expense ----------
@@ -169,3 +173,34 @@ export interface BudgetImportResult {
 
 export type BudgetImportMode = "append" | "replace";
 
+
+// ---------- Planned vs Actual variance (Faz 3) ----------
+
+export type VarianceSeverity = "ok" | "watch" | "warn" | "over";
+
+export interface BudgetItemVariance {
+  id: number;
+  cost_code: string | null;
+  description: string;
+  category_id: number;
+  category_name: string;
+  category_slug: string;
+  planned_amount: string;
+  committed_amount: string;
+  actual_amount: string;
+  variance: string;
+  variance_pct: number | null;
+  matched_expense_count: number;
+  severity: VarianceSeverity;
+}
+
+export interface BudgetVarianceReport {
+  project_id: number;
+  generated_at: string;
+  total_planned: string;
+  total_committed: string;
+  total_actual: string;
+  overall_variance: string;
+  overall_variance_pct: number | null;
+  items: BudgetItemVariance[];
+}

@@ -4,6 +4,324 @@ Living, day-by-day log. Forward-looking master plan is in
 docs/plans/sprint_roadmap.md. Day-specific plans live under
 docs/plans/dayN_*_plan.md.
 
+## Day 12 — Contract list + Profile report ledger-aware (2026-05-09)
+
+**Status:** Per-contract "Paid" column in the Contracts tab now sums
+ledger EXPENSE entries (where ``LedgerEntry.contract_id`` matches), and
+the Profile report ("Firma Kartviziti") includes ledger-side payments
+in its Financial Summary. Both surfaces previously read only from the
+legacy SubcontractorPayment table and showed 0.
+
+### What landed
+
+* ``list_contracts_for_sub`` and ``list_subcontractor_contracts_for_project``
+  endpoints: extended their inline aggregation to add ``LedgerEntry``
+  EXPENSE sums per contract on top of SubcontractorPayment.PAID. Two
+  separate endpoints had nearly-identical inline aggregations -- both
+  patched in one ``replace_all`` pass.
+* ``subcontractor_profile.py`` (Firma Kartviziti service): aggregates
+  ``LedgerEntry`` EXPENSE rows for the subcontractor and folds the
+  amount into ``total_paid`` on top of SubcontractorPayment.PAID.
+* Cache invalidation hooks added to:
+  - ``PATCH /ledger/{id}`` (single-row update) -- invalidates the
+    affected sub's profile-report cache
+  - ``POST /ledger/bulk-assign`` -- invalidates every affected
+    sub's cache (covers re-assignments via old + new sub_id capture)
+
+### Why this was needed
+
+Frontend dropdown in the Payments tab calls ``api.ledger.update`` with
+``contract_id`` -- so the link is persisted. But the Contracts list
+endpoint had its own inline SQL that only looked at
+``SubcontractorPayment``, so the freshly-attached ledger rows never
+showed up in the per-contract Paid column. Same root cause for the
+Profile report's "Ödenen 0 ₽".
+
+---
+
+## Day 12 — Subcontractor "paid" + cash flow ledger-aware (2026-05-09)
+
+**Status:** Subcontractor detail page's "Paid" KPI and the cash flow chart
++ forecast now read from the LedgerEntry table in addition to the legacy
+SubcontractorPayment table. Ledger-imported expenses tied to a sub via
+``subcontractor_id`` finally show up on the dashboard rather than as
+phantom 0 ₽.
+
+### What landed
+
+* New helper ``_compute_paid_for_subcontractor(db, sub_id)`` -- sums
+  SubcontractorPayment.PAID + LedgerEntry.EXPENSE (subcontractor_id match).
+* ``_compute_contract_aggregates`` extended to also count
+  LedgerEntry.EXPENSE rows whose ``contract_id`` matches the contract
+  (in addition to SubcontractorPayment.PAID). Pending stays as
+  SubcontractorPayment.PENDING/APPROVED only -- ledger has no pending.
+* New schema field ``SubcontractorResponse.total_paid`` (Decimal,
+  default 0). Frontend ``totalPaid`` prefers this over per-contract sum.
+* ``GET /subcontractors/{id}/cashflow`` (monthly history) now sums ledger
+  EXPENSE entries into the ``paid`` bucket per month.
+* ``GET /subcontractors/{id}/cashflow-forecast`` history merges
+  SubcontractorPayment + LedgerEntry monthly aggregates.
+* Frontend ``ledger-payments-tab.tsx`` table set to ``table-fixed``
+  with truncated description column + tooltip on hover -- previously
+  overflowed off-screen on smaller laptops.
+
+### Caveats
+
+* If the user records the same payment in **both** tables, totals
+  double-count. Real workflow uses one or the other (we expect ledger).
+* Ledger entries with ``contract_id IS NULL`` only show up on the
+  subcontractor-wide "Paid" KPI, not on a specific contract row in the
+  Contracts tab. Future enhancement: auto-attach ledger to the unique
+  active contract when the user only has one.
+
+---
+
+## Day 12 — ÇMI Monart import (2026-05-09 — afternoon)
+
+**Status:** ÇMI master budget Excel parsed end-to-end. 15 Monart top-level
+work packages auto-categorized into 8 budget categories, totalling
+**11.94B RUB**. Sub-detail rows (kod yok) folded into parent ``notes`` field
+to avoid double-counting.
+
+### What landed
+
+- New service `app/services/monart_budget_parser.py`. Header-row
+  scanner that walks the ÇMI sheet, filters by column P (Bütçe sorumlusu)
+  ``"Монарт"`` substring, and only emits rows that have a cost code in
+  column A. Empty-A rows that follow are attached as informational
+  ``sub_items`` to the most recent parent.
+- Auto-category mapping:
+  - 3 → Bina
+  - 29-33 → Yollar
+  - 35-37 → Altyapı
+  - 38 → Haberleşme
+  - 39 → Isıtma
+  - 40-41 → Elektrik
+  - 44 → Peyzaj
+  - 45 → Aydınlatma
+- New endpoint
+  `POST /api/v1/projects/{id}/budget-items/import-cmi` (admin/PM only).
+  Multipart: `file`, `sheet_name` (default `ЦМИ`),
+  `responsible_filter` (default `Монарт`), `overwrite_mode`
+  (`append`/`replace`). Idempotent: existing `cost_code`s skipped with
+  warning.
+- Frontend: `BudgetItemImportDialog` extended with a Format selector
+  (Standart format / ÇMI master bütçe) and a Bütçe sorumlusu filter
+  input that's only shown for the ÇMI variant. File-size limit
+  auto-bumps to 25 MB for the master workbook.
+- New api-client method: `api.budgetItems.importCmiMonart(...)`.
+
+### Validation
+
+- Parsed actual ``ЦМИ - MONART STROY_BÜTÇE 20250304 rev016 OA.xlsx``:
+  15 top-level Monart items, 90 attached detail rows, total
+  11,939,135,997.39 RUB. Matches manual roll-up of column I for the
+  Monart-responsible rows (non-detail).
+- Parser correctly demoted three previously-misclassified parents
+  (rows 3093, 3102, 3110 = sub-items of "Благоустройство" #44)
+  into the parent's notes. Pre-fix total had been 12.48B (538M
+  double-counted).
+- Note: the older `app/services/budget_excel_cmi.py` file still
+  exists on disk (sandbox couldn't delete it) but is no longer
+  imported anywhere. Safe to delete from the host machine.
+
+### Carried forward
+
+- After successful import on a real project, kullanıcının başka
+  firmaların kalemlerini de (Альмис gibi) ayrı bir taşeron-bütçesi
+  olarak görmek isteyip istemediğini soracağız.
+- Sub-item'lar şu an sadece parent'ın notes alanında metin olarak
+  saklanıyor. İleride ayrı bir nested ``BudgetItemDetail`` tablosu
+  açıp variance reportu daha detaylı yapabiliriz.
+
+---
+
+## Day 12 — Demo Blitz Faz 2-5 (2026-05-09 — same day continuation)
+
+**Status:** All four remaining phases (Budget Excel parser hardening,
+Planned vs Actual variance, Dashboard daily AI briefing, Project executive
+report) shipped end-to-end. LLM paths gated on `ANTHROPIC_API_KEY`; all
+fall back to rule-based copy when the key is missing so demos work today.
+
+### What landed
+
+**Faz 2 — Budget Excel parser**
+- `BudgetItem` model: `cost_code` (indexed string, nullable) +
+  `committed_amount` (Numeric, default 0). Migration
+  `c2d4e6f8a1b3_add_cost_code_and_committed_to_budget_items`.
+- Schema (`schemas/budget.py`): `BudgetItemBase` / `BudgetItemUpdate`
+  pick up the new fields.
+- Parser (`app/api/v1/endpoints/budget_items.py`): added `cost_code` and
+  `committed_amount` to the column-alias table (TR/EN/RU). Parser writes
+  both to the new columns; negative committed amounts → 0 with warning.
+- `create_budget_item` endpoint passes both fields when constructing
+  rows via the JSON API.
+- Format reference: `docs/budget_excel_format.md` documents the alias
+  table, required vs optional columns, and what to add when the user
+  shares a template.
+
+**Faz 3 — Planned vs Actual variance**
+- New service `app/services/budget_variance.py`. Aggregates two sources
+  of "actual": (1) PAID expenses with `budget_item_id` matching the row,
+  (2) EXPENSE-type ledger entries whose `budget_code` matches the
+  budget item's `cost_code` AND whose contract belongs to this project
+  (or is unlinked).
+- New schemas: `BudgetItemVariance`, `BudgetVarianceReport`.
+- New endpoint: `GET /api/v1/projects/{id}/budget/variance`.
+- Severity buckets: ok / watch / warn / over (≥80, ≥95, >100).
+- Frontend: new `<BudgetVarianceTab>` component at
+  `components/budget-items/variance-tab.tsx`. Top KPI strip (Planned /
+  Committed / Actual / Variance), filter chips by severity, search,
+  sortable table (cost code, planned, actual, variance), per-row badges.
+- Wired into the budget page as a new "Planned vs Actual" tab.
+
+**Faz 4 — Dashboard daily AI briefing**
+- New service `app/services/daily_briefing.py`. Collects 24-hour facts
+  across the portfolio (new expenses, new ledger rows, payments paid,
+  workforce snapshots, new contracts, project state) → asks Claude (or
+  rule-based) for a 1-paragraph summary + 3-5 highlights + 3-5 decisions.
+- New schema: `DailyBriefing`.
+- New endpoint: `GET /api/v1/dashboard/daily-briefing?force_refresh=`.
+- Cache: `insights_cache.set(-42, …)` (disjoint key from sub-profile +
+  exec-report).
+- Frontend: new `<DailyBriefingCard>` at
+  `components/dashboard/daily-briefing-card.tsx` — gradient header,
+  AI Generated badge, Yenile button, two-column highlights / decisions.
+- Mounted at the top of `/` (the dashboard).
+
+**Faz 5 — Project executive report**
+- New service `app/services/project_executive_report.py`. Pulls budget
+  variance + subcontractor leaderboard + workforce trend + project
+  metadata into a structured fact bundle, then asks Claude for six
+  narrative sections (executive summary / financial / risks / sub
+  performance / workforce / next 30 days) + recommended actions.
+- New schemas: `ExecutiveReportSections`, `ProjectExecutiveReport`.
+- New endpoint: `GET /api/v1/projects/{id}/executive-report?force_refresh=`.
+- Cache: project_id + 2_000_000 (disjoint).
+- Frontend: `/projects/[id]/reports` is now a real page (no more
+  ComingSoonPage). Cover card with project metadata, six section cards,
+  recommended-actions card, browser-print to PDF via `window.print()`.
+  Print-hidden controls so the printed PDF is clean.
+
+### Cache key namespace map
+
+| Owner | Offset / Key |
+|---|---|
+| AI insights (per sub) | sub_id |
+| Subcontractor profile | sub_id + 1_000_000 |
+| Project executive report | project_id + 2_000_000 |
+| Dashboard daily briefing | -42 |
+
+All cache entries clear automatically after the `insights_cache` TTL.
+Manual force_refresh on each endpoint bypasses.
+
+### Bugs fought
+
+- **Sandbox mount truncation:** As before, bash-side `python` invokes
+  see truncated sources. Verified via Read tool which uses Windows side.
+- **Cache key collisions:** Used disjoint offsets per resource family so
+  the single shared cache module supports multiple unrelated namespaces.
+
+### Carried forward
+
+- Real Excel template from user → revisit alias table once received,
+  potentially add column aliases or hierarchy flattening.
+- PDF generation via WeasyPrint or Playwright for the executive report
+  if browser-print isn't enough.
+- Ledger entry → budget_item FK migration (currently matched via the
+  `budget_code` ↔ `cost_code` string join).
+
+---
+
+## Day 12 — Demo Blitz Faz 1 (2026-05-09)
+
+**Status:** Sidebar restructure shipped, Expenses bulk-assign + sort shipped,
+Subcontractor area-chart + profile-report ("Firma Kartviziti") shipped. API
+key promised by user — wiring is ready (`ANTHROPIC_API_KEY` env var flips
+all paths from rule/mock to real Claude on backend restart).
+
+### What landed
+
+**1.1 — Project-scoped sidebar restructure**
+- Top-level nav reduced to Dashboard / Projects (+ Admin: Budget Categories).
+- New `ProjectProvider` context (`components/providers/project-provider.tsx`)
+  loads the active project once and exposes it via `useProject()`.
+- New `ProjectSidebar` (`components/layout/project-sidebar.tsx`) — renders
+  Overview / Subcontractors / Workforce / Budget / Expenses / Schedule /
+  Risks / Reports for the selected project.
+- New `app/(dashboard)/projects/[id]/layout.tsx` slots the sub-sidebar in.
+- New `app/(dashboard)/projects/[id]/page.tsx` — project overview / module
+  quick-launch grid with KPI strip.
+- Modules moved: `subcontractors/`, `workforce/`, `expenses/`, `schedule/`,
+  `risks/`, `reports/` → all live under `projects/[id]/...` and read
+  `projectId` from `useParams` / `useProject`.
+- Subcontractor detail + contract detail now nested at
+  `projects/[id]/subcontractors/[subId]/contracts/[contractId]`.
+- Legacy top-level routes return `redirect("/projects")` so old links still
+  bounce somewhere sensible.
+- Projects list rows + new "Open Project" dropdown action go straight to the
+  overview (`/projects/{id}`).
+- i18n: `nav.overview`, `nav.budget`, `project.backToProjects` keys added
+  (TR + EN).
+
+**1.2 — Expenses sort + bulk assign**
+- Sortable headers (Date / Company / Amount). Visual arrow ikonu.
+- Inline single-row edit popovers for budget code (uses BudgetCategory.slug)
+  and subcontractor (uses /subcontractors list).
+- Per-row checkbox + sticky bulk action bar appears when ≥1 selected.
+- Quick selectors: click company name or KOD badge to select all matching
+  rows on the page.
+- Backend: new `POST /api/v1/ledger/bulk-assign` endpoint (admin/PM only).
+  Schemas: `LedgerBulkAssignRequest`, `LedgerBulkAssignResponse`.
+- Existing `PATCH /ledger/{id}` extended to accept `subcontractor_id`
+  (clears `contract_id` when sub changes — keeps FK invariant).
+
+**1.3 — Subcontractor: Area chart + Claude API + Firma Kartviziti**
+- Cash flow tab: Recharts BarChart → AreaChart with gradient fills (Paid
+  green / Approved blue / Pending amber, all stacked).
+- Backend service: `app/services/subcontractor_profile.py`. Aggregates
+  contracts + payments + every contract document's extracted_data into a
+  single `SubcontractorProfileReport`. Claude path when API key present,
+  rule-based fallback otherwise.
+- New schemas (`schemas/subcontractor.py`): `ProfileSection`,
+  `PenaltyPattern`, `TimelineKeyDate`, `SubcontractorProfileReport`.
+- New endpoint: `GET /subcontractors/{id}/profile-report?force_refresh=`,
+  cached in `insights_cache` with disjoint key namespace (`sub_id +
+  1_000_000`).
+- Cache invalidation hooks added on document upload, re-extract, and
+  extracted-data PATCH.
+- Frontend: new `<SubcontractorProfileCard>` component — gradient header
+  card with KPI tiles (toplam değer / ödenen / bekleyen / aktif-bitmiş /
+  risk score), four narrative sections (Şirket Özeti / Mali / Risk /
+  Ödeme Şartları), penalty patterns list, kritik tarihler timeline,
+  AI tavsiyeleri. "Yenile" button forces refresh.
+- Subcontractor detail page: new "Profil" tab as the default landing tab.
+
+### Bugs fought
+
+- **Param collision after route restructure:** subcontractor detail
+  used `useParams<{ id: string }>` for sub id, but `id` is now project id.
+  Renamed to `subId`, both pages updated; `params.id` now means project.
+- **Internal links (`/subcontractors/{id}` etc):** patched all hard-coded
+  links inside subcontractor + budget pages to project-scoped routes.
+
+### Carried to Day 13 (Faz 2 — Budget Excel)
+
+- User will share the budget Excel template — parser + import endpoint
+  + frontend dialog still pending.
+- After parser lands, Faz 3 (Planned vs Actual) wires expenses to budget
+  items via FK + variance report.
+
+### Validation
+
+- Backend `py_compile` clean for all new/modified modules.
+- Schema additions all optional / additive — no existing endpoint broken.
+- Manual review of `<SubcontractorProfileCard>`, sidebar, project-scoped
+  routes via Read tool (sandbox mount truncation prevents bash python
+  smoke tests on large files).
+
+---
+
 ## Day 11 — Subcontractor Intelligence (2026-05-02)
 
 **Status:** Backend + frontend wired. LLM paths land as **mock responses**

@@ -91,6 +91,11 @@ class SubcontractorResponse(SubcontractorBase):
     # Computed fields (filled by endpoint)
     active_contract_count: int = 0
     total_contract_value: Decimal = Decimal("0")
+    # Subcontractor-wide paid total: SubcontractorPayment.PAID +
+    # LedgerEntry.EXPENSE for this subcontractor. Powers the "Paid"
+    # KPI on the detail page when ledger entries aren't bound to a
+    # specific contract yet.
+    total_paid: Decimal = Decimal("0")
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -534,3 +539,73 @@ class SubcontractorInsights(BaseModel):
     insights: list[AIInsight] = []
     overall_health: str  # "good" | "at_risk" | "critical"
 
+
+# =============================================================================
+# Subcontractor Profile Report ("Firma Kartviziti") — Faz 1.3.3
+# =============================================================================
+
+
+class TimelineKeyDate(BaseModel):
+    """A key date pulled from one of the subcontractor's contract documents."""
+
+    date: str  # ISO yyyy-mm-dd or free-form when LLM cannot resolve
+    label: str
+    description: str | None = None
+    source_document: str | None = None  # filename or contract reference
+
+
+class PenaltyPattern(BaseModel):
+    """Common penalty pattern observed across the subcontractor's contracts."""
+
+    trigger: str  # e.g. "Late delivery"
+    penalty_type: str  # "percent" | "fixed" | "daily"
+    typical_amount: str | None = None  # human-readable: "%5", "100k RUB/day"
+    occurrences: int = 1
+
+
+class ProfileSection(BaseModel):
+    """Free-form narrative section produced by the LLM."""
+
+    heading: str
+    body: str  # 1-3 sentence summary
+
+
+class SubcontractorProfileReport(BaseModel):
+    """A consolidated, AI-generated 'business card' for a subcontractor.
+
+    Aggregates every contract document (extracted_data) plus payment history,
+    contracts and risk score into a single distilled view that a project
+    manager can read at a glance. The view is what an executive would see if
+    the subcontractor were on a single sheet of paper — risks, terms, key
+    dates, and recommended actions.
+    """
+
+    subcontractor_id: int
+    subcontractor_name: str
+
+    # High-level cards
+    company_overview: ProfileSection
+    financial_summary: ProfileSection
+    risk_profile: ProfileSection
+    payment_terms_summary: ProfileSection
+
+    # Structured aggregates
+    total_contract_value: Decimal
+    total_paid: Decimal
+    pending_amount: Decimal
+    active_contract_count: int
+    completed_contract_count: int
+    avg_payment_delay_days: float | None = None
+    risk_score: int | None = None  # 0-100 (mirrors RiskScore.score)
+
+    penalty_patterns: list[PenaltyPattern] = []
+    key_dates_timeline: list[TimelineKeyDate] = []
+    aggregated_risk_flags: list[str] = []
+
+    # Executive recommendations (AI bullet points)
+    recommendations: list[str] = []
+
+    # Provenance
+    source: str = "rule"  # "rule" | "llm" | "llm_mock"
+    documents_analyzed: int = 0
+    generated_at: datetime

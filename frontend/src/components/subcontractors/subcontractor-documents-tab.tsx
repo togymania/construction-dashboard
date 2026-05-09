@@ -99,8 +99,8 @@ export function SubcontractorDocumentsTab({ subId, contracts, canEdit }: Props) 
       );
       if (!ok) { e.target.value = ""; return; }
     }
-    if (file.size > 20 * 1024 * 1024) {
-      toast.error("File exceeds 20MB limit");
+    if (file.size > 100 * 1024 * 1024) {
+      toast.error("File exceeds 100MB limit");
       e.target.value = "";
       return;
     }

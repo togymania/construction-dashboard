@@ -11,3 +11,15 @@ export interface DashboardStats {
   on_track: KPIMetric;
   open_risks: KPIMetric;
 }
+
+// ---------- Daily AI Briefing (Faz 4) ----------
+
+export interface DailyBriefing {
+  generated_at: string;
+  headline: string;
+  summary: string;
+  highlights: string[];
+  decisions: string[];
+  facts: Record<string, number | string>;
+  source: "rule" | "llm";
+}

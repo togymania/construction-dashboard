@@ -96,6 +96,7 @@ import type {
 import { useUser } from "@/components/providers/user-provider";
 import { BudgetItemFormDialog } from "@/components/budget-items/budget-item-form-dialog";
 import { BudgetItemImportDialog } from "@/components/budget-items/budget-item-import-dialog";
+import { BudgetVarianceTab } from "@/components/budget-items/variance-tab";
 import { ExpenseFormDialog } from "@/components/expenses/expense-form-dialog";
 import { ExpenseImportDialog } from "@/components/expenses/expense-import-dialog";
 import {
@@ -393,7 +394,7 @@ export default function ProjectBudgetPage() {
               {formatRubCompact(summary?.total_spent)}
             </div>
             <p className="text-xs text-muted-foreground mt-1">
-              {expenses?.length ?? 0} expense records
+              {(summary?.expense_records_count ?? 0).toLocaleString()} expense records
             </p>
           </CardContent>
         </Card>
@@ -497,7 +498,7 @@ export default function ProjectBudgetPage() {
         </div>
       )}
 
-      {/* Tabs: Budget Items | Expenses */}
+      {/* Tabs: Budget Items | Expenses | Variance | Subcontractors */}
       <Tabs defaultValue="budget-items" className="space-y-4">
         <TabsList>
           <TabsTrigger value="budget-items">
@@ -508,19 +509,21 @@ export default function ProjectBudgetPage() {
               </Badge>
             )}
           </TabsTrigger>
-          <TabsTrigger value="expenses">
-            Expenses
-            {expenses && expenses.length > 0 && (
-              <Badge variant="secondary" className="ml-2 text-xs">
-                {expenses.length}
-              </Badge>
-            )}
+          <TabsTrigger value="variance">
+            <TrendingUp className="h-4 w-4 mr-2" />
+            Planned vs Actual
           </TabsTrigger>
           <TabsTrigger value="subcontractors" onClick={loadSubContracts}>
             <HardHat className="h-4 w-4 mr-2" />
             Subcontractors
           </TabsTrigger>
         </TabsList>
+
+        {/* ===== Variance (Planned vs Actual) Tab ===== */}
+        <TabsContent value="variance">
+          <BudgetVarianceTab projectId={projectId} />
+        </TabsContent>
+
 
         {/* ===== Budget Items Tab ===== */}
         <TabsContent value="budget-items">
@@ -627,8 +630,11 @@ export default function ProjectBudgetPage() {
           </Card>
         </TabsContent>
 
-        {/* ===== Expenses Tab ===== */}
-        <TabsContent value="expenses">
+        {/* ===== Expenses Tab — disabled. Real expenses live at
+             /projects/[id]/expenses (ledger import). Kept here as dead
+             code; the trigger has been removed from TabsList so users
+             cannot reach this content. ===== */}
+        <TabsContent value="_legacy_expenses_disabled" className="hidden">
           <Card>
             <CardHeader className="pb-4">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -806,7 +812,7 @@ export default function ProjectBudgetPage() {
                   <HardHat className="h-10 w-10 mx-auto mb-3 opacity-30" />
                   <p>No subcontractor contracts on this project yet.</p>
                   <Link
-                    href="/subcontractors"
+                    href={`/projects/${projectId}/subcontractors`}
                     className="text-primary text-sm hover:underline mt-2 inline-block"
                   >
                     Go to subcontractors directory &rarr;
@@ -840,7 +846,7 @@ export default function ProjectBudgetPage() {
                           <TableCell className="font-medium">
                             {c.subcontractor ? (
                               <Link
-                                href={`/subcontractors/${c.subcontractor.id}`}
+                                href={`/projects/${projectId}/subcontractors/${c.subcontractor.id}`}
                                 className="hover:underline"
                               >
                                 {c.subcontractor.name}
@@ -857,7 +863,7 @@ export default function ProjectBudgetPage() {
                           <TableCell className="font-mono text-xs">
                             {c.subcontractor && (
                               <Link
-                                href={`/subcontractors/${c.subcontractor.id}/contracts/${c.id}`}
+                                href={`/projects/${projectId}/subcontractors/${c.subcontractor.id}/contracts/${c.id}`}
                                 className="hover:underline"
                               >
                                 {c.contract_number ?? `#${c.id}`}
