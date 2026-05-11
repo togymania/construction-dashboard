@@ -1,0 +1,45 @@
+# Render Blueprint for the ConstructHub backend.
+#
+# Used when you create a new service from this repo on render.com.
+# Render reads this file from the root of the service's directory and
+# pre-fills the create-service form. You still have to enter the
+# secret env vars (DATABASE_URL_OVERRIDE, ANTHROPIC_API_KEY,
+# SECRET_KEY, CORS_ORIGINS) manually via the dashboard for safety.
+services:
+  - type: web
+    name: monotek-stroy-pm-api
+    runtime: python
+    plan: free
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: ANTHROPIC_MODEL
+        value: claude-sonnet-4-5
+      - key: LLM_TIMEOUT_SECONDS
+        value: "120"
+      - key: MAX_PDF_SIZE_MB
+        value: "100"
+      - key: MAX_LEDGER_IMPORT_MB
+        value: "25"
+      - key: MAX_IMPORT_FILE_SIZE_MB
+        value: "10"
+      - key: UPLOADS_DIR
+        value: /var/data/uploads
+      # The four secret vars below MUST be set manually in the Render
+      # dashboard. Listed here as ``sync: false`` to keep them out of
+      # the synced blueprint.
+      - key: DATABASE_URL_OVERRIDE
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: SECRET_KEY
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false
+    disk:
+      name: uploads
+      mountPath: /var/data
+      sizeGB: 1
