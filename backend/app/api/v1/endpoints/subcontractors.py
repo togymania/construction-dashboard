@@ -1789,9 +1789,10 @@ async def upload_document(
     )).scalar_one()
     version = int(max_version) + 1
 
-    # Save file
+    # Save file. UPLOADS_DIR is configurable per environment -- in
+    # production we mount a persistent disk; in dev it's ./uploads.
     import os
-    upload_dir = os.path.join("uploads", "contracts", str(contract_id))
+    upload_dir = os.path.join(settings.UPLOADS_DIR, "contracts", str(contract_id))
     os.makedirs(upload_dir, exist_ok=True)
 
     safe_name = f"{doc_type.value.lower()}_v{version}_{file.filename}"
