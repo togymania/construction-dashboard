@@ -450,7 +450,7 @@ export default function ProjectBudgetPage() {
                     ))}
                   </Pie>
                   <Tooltip
-                    formatter={(value: number) => formatRub(value)}
+                    formatter={(value) => formatRub(Number(value) || 0)}
                     contentStyle={{ fontSize: 12 }}
                   />
                   <Legend
@@ -481,11 +481,11 @@ export default function ProjectBudgetPage() {
                   />
                   <YAxis
                     tick={{ fontSize: 11 }}
-                    tickFormatter={(v: number) => formatRubAxisTick(v)}
+                    tickFormatter={(v) => formatRubAxisTick(Number(v) || 0)}
                     width={56}
                   />
                   <Tooltip
-                    formatter={(value: number) => formatRub(value)}
+                    formatter={(value) => formatRub(Number(value) || 0)}
                     contentStyle={{ fontSize: 12 }}
                   />
                   <Legend wrapperStyle={{ fontSize: 12 }} />
