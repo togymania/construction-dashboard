@@ -17,7 +17,11 @@ psycopg2-binary==2.9.10
 
 # Security
 python-jose[cryptography]==3.3.0
+# bcrypt>=4.0 raises on >72-byte passwords (instead of truncating),
+# which crashes passlib 1.7.4's backend-detection at startup. Pinning
+# bcrypt<4 keeps passlib's hash/verify path working.
 passlib[bcrypt]==1.7.4
+bcrypt==3.2.2
 python-multipart==0.0.19
 
 # HTTP & Utils
