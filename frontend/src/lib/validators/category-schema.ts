@@ -17,4 +17,8 @@ export const categoryFormSchema = z.object({
   is_active: z.boolean(),
 });
 
-export type CategoryFormInput = z.infer<typeof categoryFormSchema>;
+// react-hook-form needs the INPUT type (pre-transform). Use z.input so
+// `display_order` can be the raw `string | number` the field produces and
+// the resolver type aligns with useForm<T>.
+export type CategoryFormInput = z.input<typeof categoryFormSchema>;
+export type CategoryFormOutput = z.output<typeof categoryFormSchema>;

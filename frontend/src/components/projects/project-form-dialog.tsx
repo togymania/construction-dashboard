@@ -29,6 +29,7 @@ import { api } from "@/lib/api-client";
 import {
   projectFormSchema,
   type ProjectFormInput,
+  type ProjectFormOutput,
 } from "@/lib/validators/project-schema";
 import type { Project } from "@/types/project";
 
@@ -54,7 +55,7 @@ export function ProjectFormDialog({
     setValue,
     watch,
     formState: { errors, isSubmitting },
-  } = useForm<ProjectFormInput>({
+  } = useForm<ProjectFormInput, unknown, ProjectFormOutput>({
     resolver: zodResolver(projectFormSchema),
     defaultValues: {
       name: "",
@@ -102,7 +103,7 @@ export function ProjectFormDialog({
   const statusValue = watch("status");
   const healthValue = watch("health");
 
-  async function onSubmit(data: ProjectFormInput) {
+  async function onSubmit(data: ProjectFormOutput) {
     const payload = {
       name: data.name,
       description: data.description || null,

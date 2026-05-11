@@ -63,7 +63,7 @@ export function BudgetItemFormDialog({
     control,
     setValue,
     formState: { errors, isSubmitting },
-  } = useForm<BudgetItemFormInput>({
+  } = useForm<BudgetItemFormInput, unknown, BudgetItemFormOutput>({
     resolver: zodResolver(budgetItemFormSchema),
     defaultValues: {
       category_id: null,
@@ -118,9 +118,8 @@ export function BudgetItemFormDialog({
     setValue("category_name_new", cat.category_name_new, { shouldValidate: true });
   }, [categoryValue, setValue]);
 
-  async function onSubmit(rawData: BudgetItemFormInput) {
+  async function onSubmit(data: BudgetItemFormOutput) {
     // After zod transform, numeric fields are real numbers.
-    const data = rawData as unknown as BudgetItemFormOutput;
 
     const payload = {
       category_id: data.category_id ?? null,

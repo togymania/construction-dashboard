@@ -39,4 +39,7 @@ export const projectFormSchema = z
     path: ["end_date"],
   });
 
-export type ProjectFormInput = z.infer<typeof projectFormSchema>;
+// useForm sees the raw input (string | number for numeric fields);
+// after the zod transform the output type has real numbers.
+export type ProjectFormInput = z.input<typeof projectFormSchema>;
+export type ProjectFormOutput = z.output<typeof projectFormSchema>;

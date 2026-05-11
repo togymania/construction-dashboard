@@ -28,6 +28,7 @@ import { api } from "@/lib/api-client";
 import {
   categoryFormSchema,
   type CategoryFormInput,
+  type CategoryFormOutput,
 } from "@/lib/validators/category-schema";
 import type { BudgetCategory } from "@/types/budget";
 
@@ -62,7 +63,7 @@ export function CategoryFormDialog({
     setValue,
     watch,
     formState: { errors, isSubmitting },
-  } = useForm<CategoryFormInput>({
+  } = useForm<CategoryFormInput, unknown, CategoryFormOutput>({
     resolver: zodResolver(categoryFormSchema),
     defaultValues: {
       name: "",
@@ -107,7 +108,7 @@ export function CategoryFormDialog({
     }
   }, [open, category, reset]);
 
-  async function onSubmit(data: CategoryFormInput) {
+  async function onSubmit(data: CategoryFormOutput) {
     try {
       if (category) {
         // For system categories: backend only accepts display_order + is_active
