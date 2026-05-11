@@ -17,6 +17,10 @@ services:
     buildCommand: pip install -r requirements.txt
     startCommand: alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port $PORT
     envVars:
+      # Pin Python 3.12 -- rapidfuzz==3.10.1 is incompatible with 3.13
+      # and metadata-generation-failed on Render's default runtime.
+      - key: PYTHON_VERSION
+        value: 3.12.7
       - key: ENVIRONMENT
         value: production
       - key: ANTHROPIC_MODEL
