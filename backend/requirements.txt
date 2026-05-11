@@ -5,6 +5,9 @@ uvicorn[standard]==0.32.1
 # Validation & Settings
 pydantic==2.10.3
 pydantic-settings==2.6.1
+# email-validator is required by pydantic's EmailStr; without it,
+# importing any schema that uses EmailStr fails at app startup.
+email-validator==2.2.0
 
 # Database
 sqlalchemy==2.0.36
