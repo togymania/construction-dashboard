@@ -20,9 +20,15 @@ app = FastAPI(
 )
 
 
+# CORS: in addition to the explicit list, allow any Vercel preview
+# subdomain on this project so production + branch deploys both work
+# without needing to chase the random hash subdomain in env vars.
+_cors_origins = settings.CORS_ORIGINS_LIST or ["http://localhost:3000"]
+print(f"[CORS] allow_origins = {_cors_origins}")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.CORS_ORIGINS_LIST or ["http://localhost:3000"],
+    allow_origins=_cors_origins,
+    allow_origin_regex=r"https://monotek-stroy-pm.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
