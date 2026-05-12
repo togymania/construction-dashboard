@@ -13,6 +13,11 @@ services:
     name: monotek-stroy-pm-api
     runtime: python
     plan: free
+    # DB lives in Neon Frankfurt -- keep the API in the same region so
+    # each query is a LAN hop (~5-10ms) instead of crossing the
+    # Atlantic (~150ms). Region cannot be changed in-place on Render;
+    # service must be recreated for this to take effect.
+    region: frankfurt
     rootDir: backend
     buildCommand: pip install -r requirements.txt
     startCommand: alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port $PORT
