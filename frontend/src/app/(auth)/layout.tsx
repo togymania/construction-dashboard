@@ -13,8 +13,9 @@ function MonotekstroyMark({ className }: { className?: string }) {
       className={className}
       aria-hidden="true"
     >
-      <polygon points="50,12 95,50 76,50 50,28 24,50 5,50" fill="#143C73" />
-      <polygon points="50,48 95,90 5,90" fill="#1FA3DA" />
+      <path d="M 32 14 L 68 14 L 90 48 L 10 48 Z" fill="#143C73" />
+      <polygon points="50,52 88,72 78,72 50,60 22,72 12,72" fill="#1FA3DA" />
+      <path d="M 28 76 L 72 76 L 96 92 L 4 92 Z" fill="#1FA3DA" />
     </svg>
   );
 }

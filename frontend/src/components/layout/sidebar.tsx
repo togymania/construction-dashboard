@@ -25,14 +25,19 @@ function MonotekstroyMark({ className }: { className?: string }) {
       className={className}
       aria-hidden="true"
     >
-      {/* Üst chevron — içi boş ev çatısı (koyu lacivert) */}
-      <polygon
-        points="50,12 95,50 76,50 50,28 24,50 5,50"
+      {/* 1) Üst dolu trapezoid — koyu lacivert (düz tepe, eğimli yanlar) */}
+      <path
+        d="M 32 14 L 68 14 L 90 48 L 10 48 Z"
         fill="#143C73"
       />
-      {/* Alt yamuk — dolu ev tabanı (açık mavi) */}
+      {/* 2) Orta chevron — açık mavi V (içi boş kemer) */}
       <polygon
-        points="50,48 95,90 5,90"
+        points="50,52 88,72 78,72 50,60 22,72 12,72"
+        fill="#1FA3DA"
+      />
+      {/* 3) Alt dolu trapezoid — açık mavi (daha geniş ev tabanı) */}
+      <path
+        d="M 28 76 L 72 76 L 96 92 L 4 92 Z"
         fill="#1FA3DA"
       />
     </svg>
