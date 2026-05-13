@@ -23,6 +23,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
@@ -885,6 +886,62 @@ async def get_tender_market_prices(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Tender not found")
     insights_cache.set(cache_key, result)  # type: ignore[arg-type]
     return result
+
+
+# ---------------------------------------------------------------------------
+# TDF Excel export (КП Форма)
+# ---------------------------------------------------------------------------
+
+
+@router.get(
+    "/tenders/{tender_id}/export-tdf",
+    summary="Download tender as TDF (КП Форма) Excel file",
+    response_class=StreamingResponse,
+)
+async def export_tender_tdf(
+    tender_id: int,
+    user: CurrentUser,
+    db: DBSession,
+):
+    """Generate the standardized TDF (Teklif Değerlendirme Formu / КП Форма)
+    Excel workbook for this tender. Columns include each non-superseded
+    bidder (each variant as its own pair of columns), all line items, totals,
+    contact info, included/not-included clauses, payment terms.
+    """
+    from io import BytesIO
+    from app.services.tender_export import build_tdf_workbook
+
+    tender = (
+        await db.execute(
+            select(Tender)
+            .where(Tender.id == tender_id)
+            .options(
+                selectinload(Tender.line_items),
+                selectinload(Tender.bids).selectinload(Bid.line_items),
+            )
+        )
+    ).scalar_one_or_none()
+    if tender is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Tender not found")
+
+    data = build_tdf_workbook(tender)
+    # ASCII-safe filename for Content-Disposition; rich UTF-8 filename
+    # goes into filename* per RFC 5987 so Cyrillic stays intact for
+    # browsers that respect it.
+    import urllib.parse
+    safe = f"tender-{tender_id}-tdf.xlsx"
+    rich = urllib.parse.quote(f"{tender.title or 'tender'}-tdf.xlsx")
+    headers = {
+        "Content-Disposition": (
+            f'attachment; filename="{safe}"; '
+            f"filename*=UTF-8''{rich}"
+        )
+    }
+    return StreamingResponse(
+        BytesIO(data),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers=headers,
+    )
 
 
 # ---------------------------------------------------------------------------

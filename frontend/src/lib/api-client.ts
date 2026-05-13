@@ -313,6 +313,42 @@ export const api = {
         `/tenders/${tenderId}/market-prices` +
           (forceRefresh ? "?force_refresh=true" : ""),
       ),
+    /**
+     * Download the tender as a TDF (КП Форма) Excel file. We bypass the
+     * shared `request` helper because the response is a binary stream,
+     * not JSON. The blob is returned to the caller so it can trigger a
+     * client-side download with the desired filename.
+     */
+    exportTdf: async (tenderId: number, filenameHint?: string): Promise<void> => {
+      const token = typeof window !== "undefined" ? getToken() : null;
+      const url = `${API_V1}/tenders/${tenderId}/export-tdf`;
+      const res = await fetch(url, {
+        headers: {
+          "X-User-Lang": readUiLang(),
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        cache: "no-store",
+      });
+      if (!res.ok) {
+        let detail = res.statusText;
+        try {
+          const body = await res.json();
+          detail = body.detail || detail;
+        } catch {
+          /* not JSON */
+        }
+        throw new ApiError(res.status, detail);
+      }
+      const blob = await res.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = objectUrl;
+      a.download = filenameHint || `tender-${tenderId}-tdf.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(objectUrl);
+    },
   },
   budgetCategories: {
     list: (includeInactive = false) =>
