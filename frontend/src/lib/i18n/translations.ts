@@ -22,6 +22,7 @@ export const translations = {
       schedule: "Schedule",
       risks: "Risks",
       reports: "Reports",
+      tenders: "Tenders",
       aiAnalysis: "AI Analysis",
       settings: "Settings",
       budgetCategories: "Budget Categories",
@@ -30,6 +31,18 @@ export const translations = {
     aiAnalysis: {
       title: "AI Project Analysis",
       subtitle: "Schedule, finance, risk and productivity synthesized by AI",
+    },
+    tenders: {
+      title: "Tenders",
+      subtitle: "Compare bids for each work package",
+      newTender: "New Tender",
+      upload: "Upload Excel/PDF",
+      manual: "Manual entry",
+      analyzing: "Analyzing file…",
+      bidCount: "{n} bids",
+      lowest: "Lowest",
+      award: "Award",
+      analyze: "AI Analysis",
     },
     project: {
       backToProjects: "All projects",
@@ -257,6 +270,7 @@ export const translations = {
       schedule: "Takvim",
       risks: "Riskler",
       reports: "Raporlar",
+      tenders: "İhaleler",
       aiAnalysis: "AI Analizi",
       settings: "Ayarlar",
       budgetCategories: "Bütçe Kategorileri",
@@ -265,6 +279,18 @@ export const translations = {
     aiAnalysis: {
       title: "AI Proje Analizi",
       subtitle: "AI tarafından sentezlenmiş takvim, finans, risk ve verimlilik",
+    },
+    tenders: {
+      title: "İhaleler",
+      subtitle: "Her iş kalemi için teklif karşılaştırması",
+      newTender: "Yeni İhale",
+      upload: "Excel/PDF yükle",
+      manual: "Manuel giriş",
+      analyzing: "Dosya analiz ediliyor…",
+      bidCount: "{n} teklif",
+      lowest: "En düşük",
+      award: "Seç",
+      analyze: "AI Analizi",
     },
     project: {
       backToProjects: "Tüm projeler",

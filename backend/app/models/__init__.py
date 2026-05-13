@@ -14,6 +14,14 @@ from app.models.subcontractor import (
     SubcontractorPayment,
     SubcontractorStatus,
 )
+from app.models.tender import (
+    Bid,
+    BidLineItem,
+    BidStatus,
+    Tender,
+    TenderLineItem,
+    TenderStatus,
+)
 from app.models.user import User
 from app.models.workforce import (
     WorkforceCategory,
@@ -23,6 +31,9 @@ from app.models.workforce import (
 )
 
 __all__ = [
+    "Bid",
+    "BidLineItem",
+    "BidStatus",
     "BudgetCategory",
     "BudgetItem",
     "ContractDocument",
@@ -40,6 +51,9 @@ __all__ = [
     "SubcontractorContract",
     "SubcontractorPayment",
     "SubcontractorStatus",
+    "Tender",
+    "TenderLineItem",
+    "TenderStatus",
     "User",
     "WorkforceCategory",
     "WorkforceCount",

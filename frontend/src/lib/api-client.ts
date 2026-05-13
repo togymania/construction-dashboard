@@ -84,6 +84,17 @@ import type {
   ProjectAIAnalysis,
   ProjectExecutiveReport,
 } from "@/types/project";
+import type {
+  Bid,
+  BidCreate,
+  BidUpdate,
+  Tender,
+  TenderAIAnalysis,
+  TenderCreate,
+  TenderExtraction,
+  TenderLineItem,
+  TenderListItem,
+} from "@/types/tender";
 import type { DailyBriefing, DashboardStats } from "@/types/dashboard";
 import type { User, TokenResponse } from "@/lib/auth";
 import type {
@@ -218,6 +229,76 @@ export const api = {
         dirty_ratio: number;
         risk_level: "LOW" | "MEDIUM" | "HIGH";
       }>("/dashboard/data-quality"),
+  },
+  tenders: {
+    listByProject: (projectId: number) =>
+      request<TenderListItem[]>(`/projects/${projectId}/tenders`),
+    get: (id: number) => request<Tender>(`/tenders/${id}`),
+    create: (projectId: number, data: TenderCreate) =>
+      request<Tender>(`/projects/${projectId}/tenders`, {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+    update: (id: number, data: Partial<TenderCreate> & { status?: string }) =>
+      request<Tender>(`/tenders/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify(data),
+      }),
+    delete: (id: number) =>
+      request<void>(`/tenders/${id}`, { method: "DELETE" }),
+    extract: (projectId: number, file: File) => {
+      const fd = new FormData();
+      fd.append("file", file);
+      return request<TenderExtraction>(
+        `/projects/${projectId}/tenders/extract`,
+        { method: "POST", body: fd },
+      );
+    },
+    addLineItem: (
+      tenderId: number,
+      data: { order_num: number; description: string; unit?: string | null; quantity?: number | string; notes?: string | null },
+    ) =>
+      request<TenderLineItem>(`/tenders/${tenderId}/line-items`, {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+    updateLineItem: (
+      lineId: number,
+      data: Partial<{
+        order_num: number;
+        description: string;
+        unit: string | null;
+        quantity: number | string;
+        notes: string | null;
+      }>,
+    ) =>
+      request<TenderLineItem>(`/tender-line-items/${lineId}`, {
+        method: "PATCH",
+        body: JSON.stringify(data),
+      }),
+    deleteLineItem: (lineId: number) =>
+      request<void>(`/tender-line-items/${lineId}`, { method: "DELETE" }),
+    createBid: (tenderId: number, data: BidCreate) =>
+      request<Bid>(`/tenders/${tenderId}/bids`, {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+    updateBid: (bidId: number, data: BidUpdate) =>
+      request<Bid>(`/bids/${bidId}`, {
+        method: "PATCH",
+        body: JSON.stringify(data),
+      }),
+    deleteBid: (bidId: number) =>
+      request<void>(`/bids/${bidId}`, { method: "DELETE" }),
+    award: (tenderId: number, bidId: number) =>
+      request<Tender>(`/tenders/${tenderId}/award?bid_id=${bidId}`, {
+        method: "POST",
+      }),
+    aiAnalysis: (tenderId: number, forceRefresh = false) =>
+      request<TenderAIAnalysis>(
+        `/tenders/${tenderId}/ai-analysis` +
+          (forceRefresh ? "?force_refresh=true" : ""),
+      ),
   },
   budgetCategories: {
     list: (includeInactive = false) =>
