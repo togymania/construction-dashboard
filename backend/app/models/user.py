@@ -8,12 +8,20 @@ from app.db.base import Base
 
 
 class UserRole(str, PyEnum):
-    """User roles for RBAC."""
+    """User roles for RBAC.
+
+    ADMIN              - full access
+    PROJECT_MANAGER    - create/edit projects, tenders, subcontractors
+    ENGINEER           - edit operational data (workforce, expenses)
+    VIEWER             - read-only across the entire app
+    WORKFORCE_EDITOR   - access ONLY to the workforce module (edit there)
+    """
 
     ADMIN = "admin"
     PROJECT_MANAGER = "project_manager"
     ENGINEER = "engineer"
     VIEWER = "viewer"
+    WORKFORCE_EDITOR = "workforce_editor"
 
 
 class User(Base):

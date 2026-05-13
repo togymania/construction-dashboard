@@ -27,7 +27,12 @@ export interface User {
   id: number;
   email: string;
   full_name: string;
-  role: "admin" | "project_manager" | "engineer" | "viewer";
+  role:
+    | "admin"
+    | "project_manager"
+    | "engineer"
+    | "viewer"
+    | "workforce_editor";
   is_active: boolean;
   created_at: string;
 }

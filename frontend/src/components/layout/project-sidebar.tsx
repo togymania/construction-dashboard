@@ -20,6 +20,7 @@ import {
 import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useProject } from "@/components/providers/project-provider";
+import { useUser } from "@/components/providers/user-provider";
 import { useT } from "@/lib/i18n/provider";
 
 interface NavItem {
@@ -53,9 +54,19 @@ interface Props {
 export function ProjectSidebar({ projectId, className }: Props) {
   const pathname = usePathname();
   const { project, isLoading } = useProject();
+  const { user } = useUser();
   const { t } = useT();
 
   const baseHref = `/projects/${projectId}`;
+
+  // Restricted role: kullanıcı sadece "workforce_editor" rolündeyse navigasyon
+  // sadece tek bir sekmeyle sınırlandırılır — diğer modüller görünmez.
+  const restrictedSegments = user?.role === "workforce_editor"
+    ? new Set(["workforce"])
+    : null;
+  const navItems = restrictedSegments
+    ? PROJECT_NAV.filter((it) => restrictedSegments.has(it.segment))
+    : PROJECT_NAV;
 
   return (
     <aside
@@ -94,7 +105,7 @@ export function ProjectSidebar({ projectId, className }: Props) {
 
       {/* Module nav */}
       <nav className="flex-1 space-y-1 p-3 overflow-y-auto">
-        {PROJECT_NAV.map((item) => {
+        {navItems.map((item) => {
           const href = item.segment ? `${baseHref}/${item.segment}` : baseHref;
           const isActive =
             item.segment === ""

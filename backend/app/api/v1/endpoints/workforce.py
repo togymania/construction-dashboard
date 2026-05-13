@@ -400,7 +400,7 @@ async def list_positions(
     response_model=WorkforcePositionResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Create a new workforce position (admin)",
-    dependencies=[Depends(require_roles(UserRole.ADMIN))],
+    dependencies=[Depends(require_roles(UserRole.ADMIN, UserRole.WORKFORCE_EDITOR))],
 )
 async def create_position(payload: WorkforcePositionCreate, db: DBSession, _user: CurrentUser):
     normalized = normalize_position_name(payload.name)
@@ -428,7 +428,7 @@ async def create_position(payload: WorkforcePositionCreate, db: DBSession, _user
     "/workforce/positions/{position_id}",
     response_model=WorkforcePositionResponse,
     summary="Update a workforce position (admin)",
-    dependencies=[Depends(require_roles(UserRole.ADMIN))],
+    dependencies=[Depends(require_roles(UserRole.ADMIN, UserRole.WORKFORCE_EDITOR))],
 )
 async def update_position(position_id: int, payload: WorkforcePositionUpdate, db: DBSession, _user: CurrentUser):
     pos = await _ensure_position(db, position_id)
@@ -452,7 +452,7 @@ async def update_position(position_id: int, payload: WorkforcePositionUpdate, db
     "/workforce/positions/{position_id}",
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Soft-delete a position (admin) - sets is_active=false",
-    dependencies=[Depends(require_roles(UserRole.ADMIN))],
+    dependencies=[Depends(require_roles(UserRole.ADMIN, UserRole.WORKFORCE_EDITOR))],
 )
 async def delete_position(position_id: int, db: DBSession, _user: CurrentUser):
     pos = await _ensure_position(db, position_id)
