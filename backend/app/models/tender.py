@@ -19,7 +19,7 @@ company without N+1 queries on the frontend.
 """
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from enum import Enum as PyEnum
 from typing import TYPE_CHECKING
@@ -27,6 +27,7 @@ from typing import TYPE_CHECKING
 from sqlalchemy import (
     Boolean,
     CheckConstraint,
+    Date,
     DateTime,
     Enum,
     ForeignKey,
@@ -70,6 +71,7 @@ class BidStatus(str, PyEnum):
     RECEIVED = "received"  # bid recorded
     WITHDRAWN = "withdrawn"
     SELECTED = "selected"  # the awarded bid; mirrors tender.awarded_bid_id
+    SUPERSEDED = "superseded"  # an older revision; replaced by a newer bid
 
 
 class LineType(str, PyEnum):
@@ -304,6 +306,25 @@ class Bid(Base):
     # uniqueness constraint below lets a (tender_id, company_name) pair
     # exist multiple times as long as variant_label differs.
     variant_label: Mapped[str | None] = mapped_column(String(120), nullable=True)
+
+    # Date the BIDDER put on their quotation (extracted from the PDF /
+    # КП header, NOT the timestamp we received it on our side). Drives
+    # the "negotiation timeline" rendered under each bidder card.
+    quote_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+
+    # Revision tracking — when the same supplier sends a second offer
+    # for the same (tender, variant) pair we don't open a new card. The
+    # incoming bid gets revision_no=N+1 and points back to its
+    # predecessor; older rows flip to BidStatus.SUPERSEDED so the
+    # comparison grid ignores them. The full chain is rendered as a
+    # mini-timeline under the latest revision's card.
+    revision_no: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1, server_default=text("1")
+    )
+    parent_bid_id: Mapped[int | None] = mapped_column(
+        ForeignKey("bids.id", ondelete="SET NULL"),
+        nullable=True,
+    )
 
     status: Mapped[BidStatus] = mapped_column(
         Enum(BidStatus, name="bid_status", values_callable=_enum_values),

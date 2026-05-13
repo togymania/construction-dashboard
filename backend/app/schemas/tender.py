@@ -13,7 +13,7 @@ Two layers:
 """
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Literal
 
@@ -118,7 +118,9 @@ class BidLineItemRead(BidLineItemBase):
 # ---------------------------------------------------------------------------
 
 
-BidStatusStr = Literal["invited", "received", "withdrawn", "selected"]
+BidStatusStr = Literal[
+    "invited", "received", "withdrawn", "selected", "superseded"
+]
 
 
 class BidBase(BaseModel):
@@ -135,6 +137,10 @@ class BidBase(BaseModel):
     # When the same company submits multiple proposals (e.g. material
     # A vs B) this distinguishes them. Empty/None for the common case.
     variant_label: str | None = None
+    # Date the bidder put on their quotation (the КП-form / PDF header
+    # tarihi). Stored separately from received_at so the negotiation
+    # timeline reflects the supplier's clock, not ours.
+    quote_date: date | None = None
     # VAT bookkeeping. The default 20% matches Russia's standard НДС.
     vat_rate: Decimal = Decimal("20")
 
@@ -155,6 +161,7 @@ class BidUpdate(BaseModel):
     delivery_days: int | None = None
     notes: str | None = None
     variant_label: str | None = None
+    quote_date: date | None = None
     vat_rate: Decimal | None = None
     status: BidStatusStr | None = None
     # Pass to fully replace the existing line-price rows in one go.
@@ -170,6 +177,8 @@ class BidRead(BidBase):
     total_material: Decimal
     total_amount: Decimal
     total_without_vat: Decimal = Decimal("0")
+    revision_no: int = 1
+    parent_bid_id: int | None = None
     received_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
@@ -293,6 +302,7 @@ class ExtractedBid(BaseModel):
     delivery_days: int | None = None
     notes: str | None = None
     variant_label: str | None = None
+    quote_date: date | None = None
     vat_rate: Decimal = Decimal("20")
     total_without_vat: Decimal | None = None
     total_with_vat: Decimal | None = None

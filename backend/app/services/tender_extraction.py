@@ -274,6 +274,11 @@ def _build_extraction_prompt(text_blob: str, lang_name: str) -> str:
         "it as `vat_rate`. If the bidder gives a total 'с НДС' / 'KDV "
         "dahil', put it in `total_with_vat`; the net 'без НДС' / 'KDV "
         "hariç' goes in `total_without_vat`. Default vat_rate is 20.\n\n"
+        "Quote date rule:\n"
+        "  - Almost every КП-PDF carries a date at the top — e.g. "
+        "'17.04.2026', '17 апреля 2026 г.', '17/04/2026', '2026-04-17', "
+        "or after 'Коммерческое предложение от ...' / 'Дата:'. "
+        "Capture it as `quote_date` in ISO YYYY-MM-DD. If unclear, null.\n\n"
         "TDF КП-Форма field dictionary (use these exact labels to map fields):\n"
         "  Header rows (Russian / Turkish):\n"
         "    'Тема' / 'Konu'                      → title (work package, top of sheet, after 'Кому/От кого/Дата')\n"
@@ -336,6 +341,7 @@ def _build_extraction_prompt(text_blob: str, lang_name: str) -> str:
         "    {\n"
         '      "company_name": "ООО АгроЦентрик",\n'
         '      "variant_label": "Dairy Plus",\n'
+        '      "quote_date": "2026-04-17",\n'
         '      "contact_name": "...",\n'
         '      "contact_phone": "...",\n'
         '      "contact_email": "...",\n'
@@ -402,6 +408,7 @@ def _shape_to_extraction(parsed: dict[str, Any], fallback_title: str) -> TenderE
                 ExtractedBid(
                     company_name=str(b.get("company_name") or "Unknown").strip(),
                     variant_label=_str_or_none(b.get("variant_label")),
+                    quote_date=_to_date_opt(b.get("quote_date")),
                     contact_name=_str_or_none(b.get("contact_name")),
                     contact_phone=_str_or_none(b.get("contact_phone")),
                     contact_email=_str_or_none(b.get("contact_email")),
@@ -585,6 +592,9 @@ def _llm_extract_single_bid(
         "     'Условия оплаты'→payment_terms, 'Сроки выполнения работ' (e.g. '10 рабочих дней')→delivery_days,\n"
         "     'Ед. изм.'/'Единица измерения'→unit, 'Кол-во'/'Мест'→quantity,\n"
         "     'Цена за единицу'/'Цена мат. за ед.'→unit_price_total, 'Стоимость с НДС N%'→vat_rate=N (parse the number).\n"
+        "  9. Quote date: capture the date the bidder wrote on the PDF "
+        "(top header, 'Коммерческое предложение от …', 'Дата:' field, "
+        "etc.) into `quote_date` as ISO YYYY-MM-DD. If unclear, null.\n"
         "  8. PDF brand-variant cue: if the header / first page carries a specific product brand or model name "
         "(e.g. 'АгроЦентрик Дэйри Плюс', 'АгроЦентрик Террас', 'Knauf Aquapanel'), capture that brand into "
         "`variant_label`. Two PDFs from the same supplier with different brand names mean two variants.\n\n"
@@ -600,6 +610,7 @@ def _llm_extract_single_bid(
         "{\n"
         '  "company_name": "...",\n'
         '  "variant_label": null,\n'
+        '  "quote_date": null,\n'
         '  "contact_name": "...",\n'
         '  "contact_phone": "...",\n'
         '  "contact_email": "...",\n'
@@ -634,6 +645,7 @@ def _llm_extract_single_bid(
     return ExtractedBid(
         company_name=str(parsed.get("company_name") or fallback_company or "Unknown").strip(),
         variant_label=_str_or_none(parsed.get("variant_label")),
+        quote_date=_to_date_opt(parsed.get("quote_date")),
         contact_name=_str_or_none(parsed.get("contact_name")),
         contact_phone=_str_or_none(parsed.get("contact_phone")),
         contact_email=_str_or_none(parsed.get("contact_email")),
@@ -701,6 +713,35 @@ def _to_int_opt(v: Any) -> int | None:
         return int(float(v))
     except Exception:
         return None
+
+
+def _to_date_opt(v: Any):
+    """Parse a date from Claude — ISO is preferred but be forgiving.
+
+    Accepts:
+      * "2026-04-17"            (ISO, the format we ask for)
+      * "17.04.2026"            (Russian/European dot format)
+      * "17/04/2026"
+      * datetime.date / datetime.datetime instances
+    Returns ``datetime.date`` or None.
+    """
+    if v is None or v == "":
+        return None
+    from datetime import date as _date, datetime as _datetime
+
+    if isinstance(v, _date) and not isinstance(v, _datetime):
+        return v
+    if isinstance(v, _datetime):
+        return v.date()
+    s = str(v).strip()
+    if not s:
+        return None
+    for fmt in ("%Y-%m-%d", "%d.%m.%Y", "%d/%m/%Y", "%d-%m-%Y"):
+        try:
+            return _datetime.strptime(s, fmt).date()
+        except ValueError:
+            continue
+    return None
 
 
 def _str_or_none(v: Any) -> str | None:

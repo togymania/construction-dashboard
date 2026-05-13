@@ -216,6 +216,7 @@ export default function TenderDetailPage() {
     setDraft({
       company_name: "",
       variant_label: null,
+      quote_date: null,
       vat_rate: "20",
       total_without_vat: null,
       total_with_vat: null,
@@ -270,6 +271,7 @@ export default function TenderDetailPage() {
     setDraft({
       company_name: bid.company_name,
       variant_label: bid.variant_label,
+      quote_date: bid.quote_date ?? null,
       vat_rate: bid.vat_rate ?? "20",
       total_without_vat: bid.total_without_vat ?? null,
       total_with_vat: null,
@@ -315,6 +317,7 @@ export default function TenderDetailPage() {
       const payload = {
         company_name: draft.company_name.trim(),
         variant_label: draft.variant_label || null,
+        quote_date: draft.quote_date || null,
         vat_rate: draft.vat_rate || "20",
         contact_name: draft.contact_name,
         contact_phone: draft.contact_phone,
@@ -418,14 +421,46 @@ export default function TenderDetailPage() {
     return map;
   }, [tender]);
 
-  // For each line: min/max across all bids (fixed prices only) so we
-  // can color cells on a gradient.
+  // Only non-superseded bids drive the comparison grid + card math.
+  // Older revisions stay in `tender.bids` so we can render their
+  // history under the latest card, but they don't compete for "en
+  // ucuz" / cell colors.
+  const activeBids = useMemo(
+    () => (tender ? tender.bids.filter((b) => b.status !== "superseded") : []),
+    [tender],
+  );
+
+  // Per-latest-bid history list: revisions of the same chain, oldest
+  // first, indexed by the latest bid's id. Walks parent_bid_id
+  // pointers backwards.
+  const revisionsByLatest = useMemo(() => {
+    const map: Record<number, Bid[]> = {};
+    if (!tender) return map;
+    const byId = new Map<number, Bid>();
+    for (const b of tender.bids) byId.set(b.id, b);
+    for (const latest of activeBids) {
+      const chain: Bid[] = [];
+      let cursor: number | null = latest.parent_bid_id;
+      while (cursor != null) {
+        const prev = byId.get(cursor);
+        if (!prev) break;
+        chain.push(prev);
+        cursor = prev.parent_bid_id;
+      }
+      // oldest → newest order for display under the card
+      map[latest.id] = chain.reverse();
+    }
+    return map;
+  }, [tender, activeBids]);
+
+  // For each line: min/max across ACTIVE bids only (fixed prices) so
+  // colour gradients reflect the live competition, not stale revisions.
   const lineExtremes = useMemo(() => {
     const out: Record<number, { min: number; max: number }> = {};
     if (!tender) return out;
     for (const li of tender.line_items) {
       const values: number[] = [];
-      for (const b of tender.bids) {
+      for (const b of activeBids) {
         const cell = cellLookup[b.id]?.[li.id];
         if (!cell || cell.price_type !== "fixed") continue;
         const v = parseFloat(cell.unit_price_total);
@@ -439,13 +474,12 @@ export default function TenderDetailPage() {
       }
     }
     return out;
-  }, [tender, cellLookup]);
+  }, [tender, cellLookup, activeBids]);
 
-  // Bidder totals min/max for the bidder cards
+  // Bidder totals min/max — across active bids only.
   const bidExtremes = useMemo(() => {
-    if (!tender || tender.bids.length === 0)
-      return { min: 0, max: 0, avg: 0 };
-    const totals = tender.bids
+    if (activeBids.length === 0) return { min: 0, max: 0, avg: 0 };
+    const totals = activeBids
       .map((b) => parseFloat(b.total_amount))
       .filter((n) => isFinite(n) && n > 0);
     if (totals.length === 0) return { min: 0, max: 0, avg: 0 };
@@ -455,7 +489,7 @@ export default function TenderDetailPage() {
       max: Math.max(...totals),
       avg: sum / totals.length,
     };
-  }, [tender]);
+  }, [activeBids]);
 
   // Market prices keyed by tender_line_item_id
   const marketByLine = useMemo(() => {
@@ -482,7 +516,7 @@ export default function TenderDetailPage() {
     );
   }
 
-  const hasSplit = tender.bids.some((b) =>
+  const hasSplit = activeBids.some((b) =>
     b.line_items.some(
       (bl) => bl.unit_price_labor !== null || bl.unit_price_material !== null,
     ),
@@ -516,8 +550,8 @@ export default function TenderDetailPage() {
             </h1>
             <p className="text-sm text-muted-foreground">
               {tender.object_name ? `${tender.object_name} · ` : ""}
-              {tender.currency} · {tender.bids.length} bid
-              {tender.bids.length === 1 ? "" : "s"} ·{" "}
+              {tender.currency} · {activeBids.length} bid
+              {activeBids.length === 1 ? "" : "s"} ·{" "}
               {tender.line_items.length} line item
               {tender.line_items.length === 1 ? "" : "s"}
             </p>
@@ -579,9 +613,9 @@ export default function TenderDetailPage() {
       </div>
 
       {/* ----- Bidder cards row ----- */}
-      {tender.bids.length > 0 ? (
+      {activeBids.length > 0 ? (
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {tender.bids.map((b) => {
+          {activeBids.map((b) => {
             const total = parseFloat(b.total_amount);
             const isCheap =
               bidExtremes.min > 0 && total === bidExtremes.min && total > 0;
@@ -622,11 +656,22 @@ export default function TenderDetailPage() {
                           <Trophy className="ml-1 inline h-3 w-3 text-amber-500" />
                         ) : null}
                       </div>
-                      {b.variant_label ? (
-                        <Badge variant="outline" className="mt-1 text-[10px]">
-                          {b.variant_label}
-                        </Badge>
-                      ) : null}
+                      <div className="mt-1 flex flex-wrap items-center gap-1">
+                        {b.variant_label ? (
+                          <Badge variant="outline" className="text-[10px]">
+                            {b.variant_label}
+                          </Badge>
+                        ) : null}
+                        {b.revision_no > 1 ? (
+                          <Badge
+                            variant="outline"
+                            className="border-blue-300 bg-blue-50 text-[10px] text-blue-700 dark:bg-blue-950/30 dark:text-blue-300"
+                            title={`Revision ${b.revision_no}`}
+                          >
+                            v{b.revision_no}
+                          </Badge>
+                        ) : null}
+                      </div>
                     </div>
                     <div className="flex items-center gap-1">
                       <button
@@ -661,12 +706,43 @@ export default function TenderDetailPage() {
                         +{variance.toFixed(1)}% vs cheapest
                       </Badge>
                     ) : null}
+                    {b.quote_date ? (
+                      <Badge variant="outline" title="Teklif tarihi">
+                        {new Date(b.quote_date).toLocaleDateString(undefined, {
+                          day: "2-digit",
+                          month: "short",
+                          year: "numeric",
+                        })}
+                      </Badge>
+                    ) : null}
                     {b.delivery_days != null ? (
                       <Badge variant="outline">
                         {b.delivery_days} gün teslim
                       </Badge>
                     ) : null}
                   </div>
+                  {revisionsByLatest[b.id] && revisionsByLatest[b.id].length > 0 ? (
+                    <div className="mt-2 rounded border border-dashed border-blue-200 bg-blue-50/40 p-2 dark:bg-blue-950/10">
+                      <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-blue-700 dark:text-blue-300">
+                        Önceki revizyonlar
+                      </div>
+                      <ul className="space-y-0.5 text-[10px] text-muted-foreground">
+                        {revisionsByLatest[b.id].map((prev) => (
+                          <li key={prev.id} className="flex items-center justify-between gap-2">
+                            <span>
+                              v{prev.revision_no}
+                              {prev.quote_date
+                                ? ` · ${new Date(prev.quote_date).toLocaleDateString()}`
+                                : ""}
+                            </span>
+                            <span className="line-through">
+                              {fmtCurrency(prev.total_amount, tender.currency)}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
                   <div className="pt-1">
                     <Button
                       size="sm"
@@ -784,7 +860,7 @@ export default function TenderDetailPage() {
                     </th>
                     <th className="w-16 p-2 text-xs">Unit</th>
                     <th className="w-24 p-2 text-right text-xs">Qty</th>
-                    {tender.bids.map((b) => (
+                    {activeBids.map((b) => (
                       <th
                         key={b.id}
                         colSpan={colsPerBid}
@@ -807,7 +883,7 @@ export default function TenderDetailPage() {
                         colSpan={4}
                         className="sticky left-0 bg-card"
                       ></th>
-                      {tender.bids.map((b) => (
+                      {activeBids.map((b) => (
                         <>
                           <th
                             key={`${b.id}-lab`}
@@ -830,7 +906,7 @@ export default function TenderDetailPage() {
                   ) : showLineTotal ? (
                     <tr className="border-b text-[10px] text-muted-foreground">
                       <th colSpan={4} className="sticky left-0 bg-card"></th>
-                      {tender.bids.map((b) => (
+                      {activeBids.map((b) => (
                         <>
                           <th
                             key={`${b.id}-unit`}
@@ -922,7 +998,7 @@ export default function TenderDetailPage() {
                         <td className="p-2 text-right text-xs">
                           {fmtNum(li.quantity)}
                         </td>
-                        {tender.bids.map((b) => {
+                        {activeBids.map((b) => {
                           const cell = cellLookup[b.id]?.[li.id];
                           if (!cell) {
                             return (
@@ -1027,7 +1103,7 @@ export default function TenderDetailPage() {
                     </td>
                     <td className="p-2"></td>
                     <td className="p-2"></td>
-                    {tender.bids.map((b) => {
+                    {activeBids.map((b) => {
                       const total = parseFloat(b.total_amount);
                       const cheap =
                         bidExtremes.min > 0 &&
@@ -1103,7 +1179,7 @@ export default function TenderDetailPage() {
                     >
                       KDV hariç (без НДС)
                     </td>
-                    {tender.bids.map((b) => (
+                    {activeBids.map((b) => (
                       <td
                         key={`net-${b.id}`}
                         colSpan={colsPerBid}
@@ -1121,13 +1197,13 @@ export default function TenderDetailPage() {
       </Card>
 
       {/* ----- Bidder commentary ----- */}
-      {tender.bids.length > 0 ? (
+      {activeBids.length > 0 ? (
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Bidder commentary</CardTitle>
           </CardHeader>
           <CardContent className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
-            {tender.bids.map((b) => (
+            {activeBids.map((b) => (
               <div key={b.id} className="rounded border bg-card p-3 text-sm">
                 <div className="mb-1 flex items-center gap-1 font-medium">
                   {b.company_name}
@@ -1408,6 +1484,16 @@ function DraftBidModal({
                   setBidField("variant_label", e.target.value || null)
                 }
                 placeholder="Dairy Plus / Sistem A"
+              />
+            </div>
+            <div>
+              <Label>Teklif tarihi</Label>
+              <Input
+                type="date"
+                value={draft.quote_date ?? ""}
+                onChange={(e) =>
+                  setBidField("quote_date", e.target.value || null)
+                }
               />
             </div>
             <div>

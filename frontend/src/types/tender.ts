@@ -7,7 +7,12 @@ export type TenderStatus =
   | "awarded"
   | "cancelled";
 
-export type BidStatus = "invited" | "received" | "withdrawn" | "selected";
+export type BidStatus =
+  | "invited"
+  | "received"
+  | "withdrawn"
+  | "selected"
+  | "superseded";
 
 export type LineType = "package" | "work" | "material" | "misc";
 
@@ -49,6 +54,9 @@ export interface Bid {
   subcontractor_id: number | null;
   company_name: string;
   variant_label: string | null;
+  quote_date: string | null;
+  revision_no: number;
+  parent_bid_id: number | null;
   vat_rate: string;
   contact_name: string | null;
   contact_phone: string | null;
@@ -128,6 +136,7 @@ export interface ExtractedBidLine {
 export interface ExtractedBid {
   company_name: string;
   variant_label?: string | null;
+  quote_date?: string | null;
   vat_rate?: string;
   total_without_vat?: string | null;
   total_with_vat?: string | null;
@@ -194,6 +203,7 @@ export interface BidCreate {
   company_name: string;
   subcontractor_id?: number | null;
   variant_label?: string | null;
+  quote_date?: string | null;
   vat_rate?: string | number;
   contact_name?: string | null;
   contact_phone?: string | null;
@@ -210,6 +220,7 @@ export interface BidUpdate {
   company_name?: string;
   subcontractor_id?: number | null;
   variant_label?: string | null;
+  quote_date?: string | null;
   vat_rate?: string | number;
   contact_name?: string | null;
   contact_phone?: string | null;

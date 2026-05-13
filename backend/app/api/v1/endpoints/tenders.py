@@ -207,6 +207,11 @@ async def list_project_tenders(
             if b.status in (BidStatus.RECEIVED, BidStatus.SELECTED)
             and Decimal(b.total_amount or 0) > 0
         ]
+        # bid_count = unique active bidders (variants count, but old
+        # revisions of the same chain do NOT — we count only non-superseded).
+        active_bids = [
+            b for b in t.bids if b.status != BidStatus.SUPERSEDED
+        ]
         lowest = min(live_bids, key=lambda b: Decimal(b.total_amount), default=None)
         out.append(
             TenderListItem(
@@ -216,7 +221,7 @@ async def list_project_tenders(
                 status=t.status.value,  # type: ignore[arg-type]
                 currency=t.currency,
                 line_item_count=len(t.line_items),
-                bid_count=len(t.bids),
+                bid_count=len(active_bids),
                 lowest_bid_amount=Decimal(lowest.total_amount) if lowest else None,
                 lowest_bid_company=lowest.company_name if lowest else None,
                 awarded_bid_id=t.awarded_bid_id,
@@ -538,10 +543,49 @@ async def create_bid(
                 status.HTTP_400_BAD_REQUEST, "subcontractor_id does not exist"
             )
 
+    # Revision detection: if a non-superseded bid already exists on this
+    # tender for the same (company_name, variant_label) pair, treat the
+    # incoming bid as a revision — point parent_bid_id at the latest
+    # predecessor, bump revision_no, and flip prior live bids to
+    # SUPERSEDED so the comparison grid only shows the newest.
+    company = payload.company_name.strip()
+    variant = (payload.variant_label or None)
+    predecessors = (
+        (
+            await db.execute(
+                select(Bid).where(
+                    Bid.tender_id == tender_id,
+                    Bid.company_name == company,
+                    (Bid.variant_label.is_(None) if variant is None
+                     else Bid.variant_label == variant),
+                    Bid.status != BidStatus.SUPERSEDED,
+                )
+                .order_by(Bid.revision_no.desc(), Bid.id.desc())
+            )
+        )
+        .scalars()
+        .all()
+    )
+    parent_id: int | None = None
+    next_revision = 1
+    if predecessors:
+        latest = predecessors[0]
+        parent_id = latest.id
+        next_revision = (latest.revision_no or 1) + 1
+        for old in predecessors:
+            old.status = BidStatus.SUPERSEDED
+            # If a previous awarded bid is now superseded, also clear
+            # the tender's awarded pointer so the user can re-pick the
+            # winner from the new revision once it lands.
+            if tender.awarded_bid_id == old.id:
+                tender.awarded_bid_id = None
+                if tender.status == TenderStatus.AWARDED:
+                    tender.status = TenderStatus.OPEN
+
     bid = Bid(
         tender_id=tender_id,
         subcontractor_id=payload.subcontractor_id,
-        company_name=payload.company_name.strip(),
+        company_name=company,
         contact_name=payload.contact_name,
         contact_phone=payload.contact_phone,
         contact_email=payload.contact_email,
@@ -550,8 +594,11 @@ async def create_bid(
         payment_terms=payload.payment_terms,
         delivery_days=payload.delivery_days,
         notes=payload.notes,
-        variant_label=(payload.variant_label or None),
+        variant_label=variant,
+        quote_date=payload.quote_date,
         vat_rate=Decimal(payload.vat_rate) if payload.vat_rate is not None else Decimal("20"),
+        revision_no=next_revision,
+        parent_bid_id=parent_id,
         status=BidStatus.RECEIVED if payload.line_items else BidStatus.INVITED,
         received_at=datetime.now(timezone.utc) if payload.line_items else None,
     )
