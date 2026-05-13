@@ -120,11 +120,11 @@ export function Sidebar({ className }: { className?: string }) {
         className
       )}
     >
-      {/* Brand row + collapse toggle — beyaz zemin, logo'nun kendi beyaz
-          background'iyle sorunsuz birleşir; dark mode'da hafif kart tonu */}
+      {/* Brand row + collapse toggle — logo transparan olduğu için
+          sidebar'ın kendi zeminiyle doğal kaynaşır */}
       <div
         className={cn(
-          "flex h-20 items-center border-b bg-white dark:bg-card",
+          "flex h-20 items-center border-b",
           collapsed ? "justify-center px-2" : "justify-between px-4"
         )}
       >
