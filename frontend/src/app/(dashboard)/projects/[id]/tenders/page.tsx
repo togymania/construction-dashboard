@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/table";
 import { api, ApiError } from "@/lib/api-client";
 import { useT } from "@/lib/i18n/provider";
+import { useUser } from "@/components/providers/user-provider";
 import { formatRubCompact } from "@/lib/formatters";
 import type { TenderListItem, TenderStatus } from "@/types/tender";
 
@@ -46,6 +47,9 @@ export default function TendersListPage() {
   const params = useParams<{ id: string }>();
   const projectId = parseInt(params.id, 10);
   const { t } = useT();
+  const { user } = useUser();
+  const canEdit =
+    !!user && (user.role === "admin" || user.role === "project_manager" || user.role === "engineer");
 
   const [items, setItems] = useState<TenderListItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -92,12 +96,14 @@ export default function TendersListPage() {
             </p>
           </div>
         </div>
-        <Link href={`/projects/${projectId}/tenders/new`}>
-          <Button size="sm">
-            <Plus className="mr-1 h-4 w-4" />
-            {t("tenders.newTender") || "New Tender"}
-          </Button>
-        </Link>
+        {canEdit ? (
+          <Link href={`/projects/${projectId}/tenders/new`}>
+            <Button size="sm">
+              <Plus className="mr-1 h-4 w-4" />
+              {t("tenders.newTender") || "New Tender"}
+            </Button>
+          </Link>
+        ) : null}
       </div>
 
       <Card>
@@ -183,16 +189,18 @@ export default function TendersListPage() {
                       {new Date(t.created_at).toLocaleDateString()}
                     </TableCell>
                     <TableCell>
-                      <button
-                        onClick={(e) => {
-                          e.preventDefault();
-                          handleDelete(t.id, t.title);
-                        }}
-                        className="text-muted-foreground transition hover:text-rose-500"
-                        title="Delete tender"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
+                      {canEdit ? (
+                        <button
+                          onClick={(e) => {
+                            e.preventDefault();
+                            handleDelete(t.id, t.title);
+                          }}
+                          className="text-muted-foreground transition hover:text-rose-500"
+                          title="Delete tender"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      ) : null}
                     </TableCell>
                   </TableRow>
                 ))}

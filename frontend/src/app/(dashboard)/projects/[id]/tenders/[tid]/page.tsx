@@ -36,6 +36,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { api, ApiError } from "@/lib/api-client";
 import { formatRubCompact } from "@/lib/formatters";
+import { useUser } from "@/components/providers/user-provider";
 import type {
   Bid,
   BidLineItem,
@@ -156,6 +157,13 @@ export default function TenderDetailPage() {
   const projectId = parseInt(params.id, 10);
   const tenderId = parseInt(params.tid, 10);
   const router = useRouter();
+
+  const { user } = useUser();
+  // VIEWER ve WORKFORCE_EDITOR ihale sayfasında salt-okunur. Backend zaten
+  // require_roles ile 403 atar; UI tarafında butonları gizlemek hem temiz
+  // hem yöneticinin gözüne batmasın diye.
+  const canEdit =
+    !!user && (user.role === "admin" || user.role === "project_manager" || user.role === "engineer");
 
   const [tender, setTender] = useState<Tender | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -568,32 +576,36 @@ export default function TenderDetailPage() {
               if (f) handleBidFile(f);
             }}
           />
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => fileRef.current?.click()}
-            disabled={extracting || tender.line_items.length === 0}
-            title={
-              tender.line_items.length === 0
-                ? "Add line items first"
-                : "Upload one company's quote"
-            }
-          >
-            {extracting ? (
-              <Loader2 className="mr-1 h-4 w-4 animate-spin" />
-            ) : (
-              <Upload className="mr-1 h-4 w-4" />
-            )}
-            Add Bid (File)
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={startManualBid}
-            disabled={tender.line_items.length === 0}
-          >
-            <Plus className="mr-1 h-4 w-4" /> Add Bid (Manual)
-          </Button>
+          {canEdit ? (
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => fileRef.current?.click()}
+                disabled={extracting || tender.line_items.length === 0}
+                title={
+                  tender.line_items.length === 0
+                    ? "Add line items first"
+                    : "Upload one company's quote"
+                }
+              >
+                {extracting ? (
+                  <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                ) : (
+                  <Upload className="mr-1 h-4 w-4" />
+                )}
+                Add Bid (File)
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={startManualBid}
+                disabled={tender.line_items.length === 0}
+              >
+                <Plus className="mr-1 h-4 w-4" /> Add Bid (Manual)
+              </Button>
+            </>
+          ) : null}
           <Link
             href={`/projects/${projectId}/tenders/${tenderId}/ai-analysis`}
           >
@@ -601,14 +613,16 @@ export default function TenderDetailPage() {
               <Sparkles className="mr-1 h-4 w-4" /> AI Analizi
             </Button>
           </Link>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={handleDeleteTender}
-            title="Delete tender"
-          >
-            <Trash2 className="h-4 w-4 text-rose-500" />
-          </Button>
+          {canEdit ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleDeleteTender}
+              title="Delete tender"
+            >
+              <Trash2 className="h-4 w-4 text-rose-500" />
+            </Button>
+          ) : null}
         </div>
       </div>
 
@@ -673,22 +687,24 @@ export default function TenderDetailPage() {
                         ) : null}
                       </div>
                     </div>
-                    <div className="flex items-center gap-1">
-                      <button
-                        onClick={() => startEditBid(b)}
-                        className="text-muted-foreground transition hover:text-foreground"
-                        title="Edit bid"
-                      >
-                        <Pencil className="h-3 w-3" />
-                      </button>
-                      <button
-                        onClick={() => handleDeleteBid(b.id)}
-                        className="text-muted-foreground transition hover:text-rose-500"
-                        title="Delete bid"
-                      >
-                        <Trash2 className="h-3 w-3" />
-                      </button>
-                    </div>
+                    {canEdit ? (
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => startEditBid(b)}
+                          className="text-muted-foreground transition hover:text-foreground"
+                          title="Edit bid"
+                        >
+                          <Pencil className="h-3 w-3" />
+                        </button>
+                        <button
+                          onClick={() => handleDeleteBid(b.id)}
+                          className="text-muted-foreground transition hover:text-rose-500"
+                          title="Delete bid"
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </button>
+                      </div>
+                    ) : null}
                   </div>
                   <div>
                     <div className="text-xl font-bold">
@@ -743,28 +759,39 @@ export default function TenderDetailPage() {
                       </ul>
                     </div>
                   ) : null}
-                  <div className="pt-1">
-                    <Button
-                      size="sm"
-                      variant={
-                        b.id === tender.awarded_bid_id ? "default" : "outline"
-                      }
-                      className="w-full"
-                      disabled={awarding === b.id}
-                      onClick={() => handleAward(b.id)}
-                    >
-                      {awarding === b.id ? (
-                        <Loader2 className="h-3 w-3 animate-spin" />
-                      ) : b.id === tender.awarded_bid_id ? (
-                        <>
-                          <Trophy className="mr-1 h-3 w-3" />
-                          Awarded
-                        </>
-                      ) : (
-                        "Award this bid"
-                      )}
-                    </Button>
-                  </div>
+                  {canEdit ? (
+                    <div className="pt-1">
+                      <Button
+                        size="sm"
+                        variant={
+                          b.id === tender.awarded_bid_id ? "default" : "outline"
+                        }
+                        className="w-full"
+                        disabled={awarding === b.id}
+                        onClick={() => handleAward(b.id)}
+                      >
+                        {awarding === b.id ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : b.id === tender.awarded_bid_id ? (
+                          <>
+                            <Trophy className="mr-1 h-3 w-3" />
+                            Awarded
+                          </>
+                        ) : (
+                          "Award this bid"
+                        )}
+                      </Button>
+                    </div>
+                  ) : b.id === tender.awarded_bid_id ? (
+                    <div className="pt-1">
+                      <Badge
+                        variant="outline"
+                        className="w-full justify-center border-amber-300 bg-amber-50 py-1 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300"
+                      >
+                        <Trophy className="mr-1 h-3 w-3" /> Awarded
+                      </Badge>
+                    </div>
+                  ) : null}
                 </CardContent>
               </Card>
             );
