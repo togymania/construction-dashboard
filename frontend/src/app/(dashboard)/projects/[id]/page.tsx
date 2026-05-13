@@ -1,6 +1,8 @@
 "use client";
 
+import { useEffect } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   Wallet,
   HardHat,
@@ -97,8 +99,19 @@ const MODULES = [
 export default function ProjectOverviewPage() {
   const { project, isLoading, error } = useProject();
   const { user } = useUser();
-  // WORKFORCE_EDITOR sadece workforce modülünü görmeli — modules grid'i
-  // diğer modüllere kısayol veriyor, onu da filtreleyelim.
+  const router = useRouter();
+
+  // WORKFORCE_EDITOR proje genel bakışını göremez — otomatik olarak
+  // İşgücü sekmesine yönlendiriyoruz.
+  useEffect(() => {
+    if (user?.role === "workforce_editor" && project?.id) {
+      router.replace(`/projects/${project.id}/workforce`);
+    }
+  }, [user?.role, project?.id, router]);
+
+  // Modules grid yalnız diğer roller için kullanılır; WORKFORCE_EDITOR
+  // redirect'ten önce kısa bir an sayfayı görse de "Workforce" tek kart
+  // olarak çıksın.
   const visibleModules = user?.role === "workforce_editor"
     ? MODULES.filter((m) => m.segment === "workforce")
     : MODULES;
