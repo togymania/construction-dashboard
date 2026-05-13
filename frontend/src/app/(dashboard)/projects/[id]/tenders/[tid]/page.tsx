@@ -20,7 +20,6 @@ import {
   ChevronDown,
   HelpCircle,
   Pencil,
-  FileSpreadsheet,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -168,7 +167,6 @@ export default function TenderDetailPage() {
   // a new one — saveDraftBid switches to PATCH /bids/{id}.
   const [editingBidId, setEditingBidId] = useState<number | null>(null);
   const [savingBid, setSavingBid] = useState(false);
-  const [exporting, setExporting] = useState(false);
   const [viewMode, setViewMode] = useState<"simple" | "detailed">("simple");
   const [showMarketBox, setShowMarketBox] = useState(false);
   const [marketPrices, setMarketPrices] = useState<TenderMarketPrices | null>(null);
@@ -347,23 +345,6 @@ export default function TenderDetailPage() {
       toast.error(e instanceof ApiError ? e.message : "Save failed");
     } finally {
       setSavingBid(false);
-    }
-  }
-
-  async function handleExportTdf() {
-    if (!tender) return;
-    setExporting(true);
-    try {
-      // Cyrillic-safe filename hint
-      const safe = (tender.title || `tender-${tender.id}`)
-        .replace(/[\\/:*?"<>|]/g, "_")
-        .slice(0, 80);
-      await api.tenders.exportTdf(tender.id, `${safe} — TDF.xlsx`);
-      toast.success("TDF Excel indirildi");
-    } catch (e) {
-      toast.error(e instanceof ApiError ? e.message : "Export failed");
-    } finally {
-      setExporting(false);
     }
   }
 
@@ -612,24 +593,6 @@ export default function TenderDetailPage() {
             disabled={tender.line_items.length === 0}
           >
             <Plus className="mr-1 h-4 w-4" /> Add Bid (Manual)
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleExportTdf}
-            disabled={exporting || activeBids.length === 0}
-            title={
-              activeBids.length === 0
-                ? "Henüz bid yok"
-                : "TDF formatında Excel olarak indir"
-            }
-          >
-            {exporting ? (
-              <Loader2 className="mr-1 h-4 w-4 animate-spin" />
-            ) : (
-              <FileSpreadsheet className="mr-1 h-4 w-4" />
-            )}
-            TDF Excel
           </Button>
           <Link
             href={`/projects/${projectId}/tenders/${tenderId}/ai-analysis`}
