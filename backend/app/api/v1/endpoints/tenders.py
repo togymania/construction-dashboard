@@ -31,7 +31,9 @@ from app.models.project import Project
 from app.models.tender import (
     Bid,
     BidLineItem,
+    BidPriceType,
     BidStatus,
+    LineType,
     Tender,
     TenderLineItem,
     TenderStatus,
@@ -50,6 +52,7 @@ from app.schemas.tender import (
     TenderLineItemRead,
     TenderLineItemUpdate,
     TenderListItem,
+    TenderMarketPrices,
     TenderRead,
     TenderUpdate,
 )
@@ -108,6 +111,12 @@ async def _recompute_bid_totals(
     tot_material = Decimal(0)
     tot_amount = Decimal(0)
     for bl in bls:
+        # Non-fixed rows (Договорная / не включена / on_request) don't
+        # contribute to numeric totals. Their line_total stays 0 and the
+        # raw_text_price is preserved for display.
+        if bl.price_type != BidPriceType.FIXED:
+            bl.line_total = Decimal("0.00")
+            continue
         qty = qty_by_line_id.get(bl.tender_line_item_id, Decimal(0))
         bl.line_total = (qty * Decimal(bl.unit_price_total or 0)).quantize(
             Decimal("0.01")
@@ -120,6 +129,15 @@ async def _recompute_bid_totals(
     bid.total_labor = tot_labor.quantize(Decimal("0.01"))
     bid.total_material = tot_material.quantize(Decimal("0.01"))
     bid.total_amount = tot_amount.quantize(Decimal("0.01"))
+    # Net (без НДС) is the gross divided by (1 + vat_rate/100). We keep
+    # both figures so the UI can flip between them without re-querying.
+    vat = Decimal(bid.vat_rate or 0)
+    if vat > 0:
+        bid.total_without_vat = (
+            bid.total_amount / (Decimal("1") + vat / Decimal("100"))
+        ).quantize(Decimal("0.01"))
+    else:
+        bid.total_without_vat = bid.total_amount
 
 
 def _normalize_split(
@@ -239,17 +257,34 @@ async def create_tender(
     db.add(tender)
     await db.flush()
 
+    # Two-pass insert so we can link parents <- children: pass 1 creates
+    # every line and remembers (order_num -> id); pass 2 sets parent_id
+    # on rows whose payload specified a parent_order_num.
+    id_by_order: dict[int, int] = {}
+    parent_pending: list[tuple[int, int]] = []  # (child_order, parent_order)
     for li in payload.line_items:
-        db.add(
-            TenderLineItem(
-                tender_id=tender.id,
-                order_num=li.order_num,
-                description=li.description,
-                unit=li.unit,
-                quantity=Decimal(li.quantity or 0),
-                notes=li.notes,
-            )
+        row = TenderLineItem(
+            tender_id=tender.id,
+            order_num=li.order_num,
+            description=li.description,
+            unit=li.unit,
+            quantity=Decimal(li.quantity or 0),
+            notes=li.notes,
+            display_label=li.display_label,
+            line_type=LineType(li.line_type) if li.line_type else LineType.MISC,
         )
+        db.add(row)
+        await db.flush()  # so row.id is materialised
+        id_by_order[li.order_num] = row.id
+        if li.parent_order_num is not None:
+            parent_pending.append((li.order_num, li.parent_order_num))
+    for child_order, parent_order in parent_pending:
+        parent_id = id_by_order.get(parent_order)
+        child_id = id_by_order.get(child_order)
+        if parent_id and child_id:
+            row = await db.get(TenderLineItem, child_id)
+            if row is not None:
+                row.parent_id = parent_id
     await db.commit()
     await db.refresh(tender)
     # Re-load with relationships
@@ -333,6 +368,22 @@ async def add_line_item(
     tender = await db.get(Tender, tender_id)
     if tender is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Tender not found")
+    parent_id: int | None = None
+    if payload.parent_order_num is not None:
+        parent = (
+            await db.execute(
+                select(TenderLineItem).where(
+                    TenderLineItem.tender_id == tender_id,
+                    TenderLineItem.order_num == payload.parent_order_num,
+                )
+            )
+        ).scalar_one_or_none()
+        if parent is None:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                f"parent_order_num {payload.parent_order_num} does not exist in this tender",
+            )
+        parent_id = parent.id
     li = TenderLineItem(
         tender_id=tender_id,
         order_num=payload.order_num,
@@ -340,6 +391,9 @@ async def add_line_item(
         unit=payload.unit,
         quantity=Decimal(payload.quantity or 0),
         notes=payload.notes,
+        parent_id=parent_id,
+        display_label=payload.display_label,
+        line_type=LineType(payload.line_type) if payload.line_type else LineType.MISC,
     )
     db.add(li)
     await db.commit()
@@ -362,6 +416,30 @@ async def update_line_item(
     if li is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Line item not found")
     data = payload.model_dump(exclude_unset=True)
+    # parent_order_num and line_type need translation before we set
+    # them on the ORM row.
+    if "parent_order_num" in data:
+        parent_order = data.pop("parent_order_num")
+        if parent_order is None:
+            li.parent_id = None
+        else:
+            parent = (
+                await db.execute(
+                    select(TenderLineItem).where(
+                        TenderLineItem.tender_id == li.tender_id,
+                        TenderLineItem.order_num == parent_order,
+                    )
+                )
+            ).scalar_one_or_none()
+            if parent is None:
+                raise HTTPException(
+                    status.HTTP_400_BAD_REQUEST,
+                    f"parent_order_num {parent_order} does not exist in this tender",
+                )
+            li.parent_id = parent.id
+    if "line_type" in data:
+        lt = data.pop("line_type")
+        li.line_type = LineType(lt) if lt else LineType.MISC
     for k, v in data.items():
         setattr(li, k, v)
     await db.flush()
@@ -472,6 +550,8 @@ async def create_bid(
         payment_terms=payload.payment_terms,
         delivery_days=payload.delivery_days,
         notes=payload.notes,
+        variant_label=(payload.variant_label or None),
+        vat_rate=Decimal(payload.vat_rate) if payload.vat_rate is not None else Decimal("20"),
         status=BidStatus.RECEIVED if payload.line_items else BidStatus.INVITED,
         received_at=datetime.now(timezone.utc) if payload.line_items else None,
     )
@@ -722,6 +802,45 @@ async def get_tender_ai_analysis(
 
 
 # ---------------------------------------------------------------------------
+# Market price help-box (Seviye 1 — Claude'un training data'sından)
+# ---------------------------------------------------------------------------
+
+
+@router.get(
+    "/tenders/{tender_id}/market-prices",
+    response_model=TenderMarketPrices,
+    summary="Per-line market price band (Seviye 1: Claude training knowledge)",
+)
+async def get_tender_market_prices(
+    tender_id: int,
+    user: CurrentUser,
+    db: DBSession,
+    lang: UserLang,
+    force_refresh: bool = Query(False),
+) -> TenderMarketPrices:
+    """Look up a rough market band for each tender line item.
+
+    Seviye 1 = no live web search, just what Claude already knows. The
+    response is cached so reopening the comparison grid doesn't burn
+    tokens. Set ``force_refresh=true`` to bypass the cache.
+    """
+    from app.services import insights_cache
+    from app.services.tender_market_prices import build_tender_market_prices
+
+    cache_key = (tender_id + 9_000_000) * 10 + (1 if lang == "TR" else 0)
+    if not force_refresh:
+        cached = insights_cache.get(cache_key)
+        if cached is not None:
+            return cached  # type: ignore[return-value]
+
+    result = await build_tender_market_prices(db, tender_id, lang=lang)
+    if result is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Tender not found")
+    insights_cache.set(cache_key, result)  # type: ignore[arg-type]
+    return result
+
+
+# ---------------------------------------------------------------------------
 # Internal: shared loaders
 # ---------------------------------------------------------------------------
 
@@ -776,17 +895,29 @@ async def _apply_bid_lines(
                 status.HTTP_400_BAD_REQUEST,
                 f"tender_line_item_id {upsert.tender_line_item_id} does not belong to this tender",
             )
-        lab, mat, tot = _normalize_split(
-            upsert.unit_price_labor,
-            upsert.unit_price_material,
-            upsert.unit_price_total,
-        )
+        try:
+            pt = BidPriceType(upsert.price_type)
+        except ValueError:
+            pt = BidPriceType.FIXED
+        # For non-fixed prices (Договорная etc.) we don't carry numeric
+        # unit prices — null out the columns and let the raw_text_price
+        # speak for itself in the UI.
+        if pt != BidPriceType.FIXED:
+            lab, mat, tot = None, None, Decimal(0)
+        else:
+            lab, mat, tot = _normalize_split(
+                upsert.unit_price_labor,
+                upsert.unit_price_material,
+                upsert.unit_price_total,
+            )
         bl = BidLineItem(
             bid_id=bid.id,
             tender_line_item_id=upsert.tender_line_item_id,
             unit_price_labor=lab,
             unit_price_material=mat,
             unit_price_total=tot,
+            price_type=pt,
+            raw_text_price=(upsert.raw_text_price or None),
             notes=upsert.notes,
         )
         db.add(bl)

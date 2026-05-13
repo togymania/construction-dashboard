@@ -94,6 +94,7 @@ import type {
   TenderExtraction,
   TenderLineItem,
   TenderListItem,
+  TenderMarketPrices,
 } from "@/types/tender";
 import type { DailyBriefing, DashboardStats } from "@/types/dashboard";
 import type { User, TokenResponse } from "@/lib/auth";
@@ -305,6 +306,11 @@ export const api = {
     aiAnalysis: (tenderId: number, forceRefresh = false) =>
       request<TenderAIAnalysis>(
         `/tenders/${tenderId}/ai-analysis` +
+          (forceRefresh ? "?force_refresh=true" : ""),
+      ),
+    marketPrices: (tenderId: number, forceRefresh = false) =>
+      request<TenderMarketPrices>(
+        `/tenders/${tenderId}/market-prices` +
           (forceRefresh ? "?force_refresh=true" : ""),
       ),
   },

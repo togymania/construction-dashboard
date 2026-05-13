@@ -104,3 +104,10 @@ models/checkpoints/
 *.zip
 *.tar.gz
 backend/uploads/
+
+# ===== Sample / reference data (kept local, never committed) =====
+samples/
+
+
+# ===== Sample / reference data (kept local, never committed) =====
+samples/

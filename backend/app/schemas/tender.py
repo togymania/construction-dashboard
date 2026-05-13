@@ -20,6 +20,10 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 
+LineTypeStr = Literal["package", "work", "material", "misc"]
+BidPriceTypeStr = Literal["fixed", "negotiable", "not_included", "on_request"]
+
+
 # ---------------------------------------------------------------------------
 # Line items
 # ---------------------------------------------------------------------------
@@ -31,6 +35,11 @@ class TenderLineItemBase(BaseModel):
     unit: str | None = None
     quantity: Decimal = Decimal("0")
     notes: str | None = None
+    # Optional hierarchy + classification. Default values keep legacy
+    # clients (and the simple "flat" tender form) working unchanged.
+    parent_order_num: int | None = None
+    display_label: str | None = None
+    line_type: LineTypeStr = "misc"
 
 
 class TenderLineItemCreate(TenderLineItemBase):
@@ -43,11 +52,22 @@ class TenderLineItemUpdate(BaseModel):
     unit: str | None = None
     quantity: Decimal | None = None
     notes: str | None = None
+    parent_order_num: int | None = None
+    display_label: str | None = None
+    line_type: LineTypeStr | None = None
 
 
-class TenderLineItemRead(TenderLineItemBase):
+class TenderLineItemRead(BaseModel):
     id: int
     tender_id: int
+    parent_id: int | None = None
+    order_num: int
+    description: str
+    unit: str | None = None
+    quantity: Decimal = Decimal("0")
+    notes: str | None = None
+    display_label: str | None = None
+    line_type: LineTypeStr = "misc"
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -67,12 +87,17 @@ class BidLineItemBase(BaseModel):
         price; backend leaves labor/material as NULL.
       * `line_total` is always (qty × unit_price_total) — server-computed
         on write, returned to the client read-only.
+      * `price_type` of anything other than "fixed" means the numeric
+        fields are zero and `raw_text_price` carries the wording
+        ("Договорная", "не включена", …).
     """
 
     tender_line_item_id: int
     unit_price_labor: Decimal | None = None
     unit_price_material: Decimal | None = None
     unit_price_total: Decimal = Decimal("0")
+    price_type: BidPriceTypeStr = "fixed"
+    raw_text_price: str | None = None
     notes: str | None = None
 
 
@@ -107,6 +132,11 @@ class BidBase(BaseModel):
     payment_terms: str | None = None
     delivery_days: int | None = Field(default=None, ge=0)
     notes: str | None = None
+    # When the same company submits multiple proposals (e.g. material
+    # A vs B) this distinguishes them. Empty/None for the common case.
+    variant_label: str | None = None
+    # VAT bookkeeping. The default 20% matches Russia's standard НДС.
+    vat_rate: Decimal = Decimal("20")
 
 
 class BidCreate(BidBase):
@@ -124,6 +154,8 @@ class BidUpdate(BaseModel):
     payment_terms: str | None = None
     delivery_days: int | None = None
     notes: str | None = None
+    variant_label: str | None = None
+    vat_rate: Decimal | None = None
     status: BidStatusStr | None = None
     # Pass to fully replace the existing line-price rows in one go.
     # Omit (None) to leave them untouched.
@@ -137,6 +169,7 @@ class BidRead(BidBase):
     total_labor: Decimal
     total_material: Decimal
     total_amount: Decimal
+    total_without_vat: Decimal = Decimal("0")
     received_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
@@ -216,10 +249,20 @@ class TenderListItem(BaseModel):
 
 
 class ExtractedLineItem(BaseModel):
+    """A draft tender line item produced by the AI extractor.
+
+    `parent_order_num` references another line's `order_num` in the
+    same extraction payload — at extraction time we don't yet have
+    database ids, so the AI links children to parents by order number.
+    """
+
     order_num: int
     description: str
     unit: str | None = None
     quantity: Decimal = Decimal("0")
+    display_label: str | None = None
+    parent_order_num: int | None = None
+    line_type: LineTypeStr = "misc"
 
 
 class ExtractedBidLine(BaseModel):
@@ -227,13 +270,16 @@ class ExtractedBidLine(BaseModel):
 
     `order_num` references the corresponding ExtractedLineItem.order_num.
     Both labor and material are optional — the AI fills them only when
-    the source document splits the price.
+    the source document splits the price. `price_type` lets us preserve
+    "Договорная" / "не включена" rows without coercing them to 0₽.
     """
 
     order_num: int
     unit_price_labor: Decimal | None = None
     unit_price_material: Decimal | None = None
     unit_price_total: Decimal = Decimal("0")
+    price_type: BidPriceTypeStr = "fixed"
+    raw_text_price: str | None = None
 
 
 class ExtractedBid(BaseModel):
@@ -246,6 +292,10 @@ class ExtractedBid(BaseModel):
     payment_terms: str | None = None
     delivery_days: int | None = None
     notes: str | None = None
+    variant_label: str | None = None
+    vat_rate: Decimal = Decimal("20")
+    total_without_vat: Decimal | None = None
+    total_with_vat: Decimal | None = None
     lines: list[ExtractedBidLine] = []
 
 
@@ -267,6 +317,41 @@ class TenderExtraction(BaseModel):
     source_filename: str | None = None
     source: Literal["llm", "rule"] = "llm"
     warnings: list[str] = []
+
+
+# ---------------------------------------------------------------------------
+# Market price help-box (Seviye 1 — Claude'un eğitim bilgisinden)
+# ---------------------------------------------------------------------------
+
+
+class MarketPriceEstimate(BaseModel):
+    """One row of the comparison-grid help-box.
+
+    Returned per tender_line_item_id. ``min`` / ``typical`` / ``max``
+    are a rough market band in the tender's currency; ``source`` is
+    "training" for Seviye 1 and will be "web" once we wire up live
+    search. ``confidence`` is the model's self-rated reliability
+    (LOW / MEDIUM / HIGH).
+    """
+
+    tender_line_item_id: int
+    description: str
+    unit: str | None = None
+    currency: str = "RUB"
+    min: Decimal | None = None
+    typical: Decimal | None = None
+    max: Decimal | None = None
+    confidence: Literal["LOW", "MEDIUM", "HIGH"] = "LOW"
+    note: str | None = None
+    source: Literal["training", "web", "rule"] = "training"
+
+
+class TenderMarketPrices(BaseModel):
+    tender_id: int
+    generated_at: datetime
+    currency: str = "RUB"
+    items: list[MarketPriceEstimate] = []
+    disclaimer: str = ""
 
 
 # ---------------------------------------------------------------------------

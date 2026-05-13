@@ -9,10 +9,21 @@ export type TenderStatus =
 
 export type BidStatus = "invited" | "received" | "withdrawn" | "selected";
 
+export type LineType = "package" | "work" | "material" | "misc";
+
+export type BidPriceType =
+  | "fixed"
+  | "negotiable"
+  | "not_included"
+  | "on_request";
+
 export interface TenderLineItem {
   id: number;
   tender_id: number;
+  parent_id: number | null;
   order_num: number;
+  display_label: string | null;
+  line_type: LineType;
   description: string;
   unit: string | null;
   quantity: string; // decimal
@@ -27,6 +38,8 @@ export interface BidLineItem {
   unit_price_material: string | null;
   unit_price_total: string;
   line_total: string;
+  price_type: BidPriceType;
+  raw_text_price: string | null;
   notes: string | null;
 }
 
@@ -35,6 +48,8 @@ export interface Bid {
   tender_id: number;
   subcontractor_id: number | null;
   company_name: string;
+  variant_label: string | null;
+  vat_rate: string;
   contact_name: string | null;
   contact_phone: string | null;
   contact_email: string | null;
@@ -47,6 +62,7 @@ export interface Bid {
   total_labor: string;
   total_material: string;
   total_amount: string;
+  total_without_vat: string;
   received_at: string | null;
   created_at: string;
   updated_at: string;
@@ -95,6 +111,9 @@ export interface ExtractedLineItem {
   description: string;
   unit: string | null;
   quantity: string;
+  display_label?: string | null;
+  parent_order_num?: number | null;
+  line_type?: LineType;
 }
 
 export interface ExtractedBidLine {
@@ -102,10 +121,16 @@ export interface ExtractedBidLine {
   unit_price_labor: string | null;
   unit_price_material: string | null;
   unit_price_total: string;
+  price_type?: BidPriceType;
+  raw_text_price?: string | null;
 }
 
 export interface ExtractedBid {
   company_name: string;
+  variant_label?: string | null;
+  vat_rate?: string;
+  total_without_vat?: string | null;
+  total_with_vat?: string | null;
   contact_name: string | null;
   contact_phone: string | null;
   contact_email: string | null;
@@ -139,6 +164,9 @@ export interface TenderLineItemCreate {
   unit?: string | null;
   quantity?: string | number;
   notes?: string | null;
+  display_label?: string | null;
+  parent_order_num?: number | null;
+  line_type?: LineType;
 }
 
 export interface TenderCreate {
@@ -157,12 +185,16 @@ export interface BidLineUpsert {
   unit_price_labor?: string | number | null;
   unit_price_material?: string | number | null;
   unit_price_total?: string | number;
+  price_type?: BidPriceType;
+  raw_text_price?: string | null;
   notes?: string | null;
 }
 
 export interface BidCreate {
   company_name: string;
   subcontractor_id?: number | null;
+  variant_label?: string | null;
+  vat_rate?: string | number;
   contact_name?: string | null;
   contact_phone?: string | null;
   contact_email?: string | null;
@@ -177,6 +209,8 @@ export interface BidCreate {
 export interface BidUpdate {
   company_name?: string;
   subcontractor_id?: number | null;
+  variant_label?: string | null;
+  vat_rate?: string | number;
   contact_name?: string | null;
   contact_phone?: string | null;
   contact_email?: string | null;
@@ -187,6 +221,29 @@ export interface BidUpdate {
   notes?: string | null;
   status?: BidStatus;
   line_items?: BidLineUpsert[];
+}
+
+// ---------- Market prices help-box ----------
+
+export interface MarketPriceEstimate {
+  tender_line_item_id: number;
+  description: string;
+  unit: string | null;
+  currency: string;
+  min: string | null;
+  typical: string | null;
+  max: string | null;
+  confidence: "LOW" | "MEDIUM" | "HIGH";
+  note: string | null;
+  source: "training" | "web" | "rule";
+}
+
+export interface TenderMarketPrices {
+  tender_id: number;
+  generated_at: string;
+  currency: string;
+  items: MarketPriceEstimate[];
+  disclaimer: string;
 }
 
 // ---------- AI Bid Analysis output ----------

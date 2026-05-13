@@ -17,7 +17,9 @@ from app.models.subcontractor import (
 from app.models.tender import (
     Bid,
     BidLineItem,
+    BidPriceType,
     BidStatus,
+    LineType,
     Tender,
     TenderLineItem,
     TenderStatus,
@@ -33,6 +35,7 @@ from app.models.workforce import (
 __all__ = [
     "Bid",
     "BidLineItem",
+    "BidPriceType",
     "BidStatus",
     "BudgetCategory",
     "BudgetItem",
@@ -43,6 +46,7 @@ __all__ = [
     "ExpenseStatus",
     "LedgerEntry",
     "LedgerEntryType",
+    "LineType",
     "PaymentStatus",
     "Project",
     "ProjectHealth",

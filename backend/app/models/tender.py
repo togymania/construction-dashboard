@@ -72,6 +72,30 @@ class BidStatus(str, PyEnum):
     SELECTED = "selected"  # the awarded bid; mirrors tender.awarded_bid_id
 
 
+class LineType(str, PyEnum):
+    """Classification of a tender line item.
+
+    Drives display + AI extraction. A "package" is an outer rollup
+    (1, 2, 3); "work"/"material"/"misc" are typically sub-lines under
+    a package. The default is "misc" so legacy rows that don't set
+    a value still render unchanged.
+    """
+
+    PACKAGE = "package"
+    WORK = "work"
+    MATERIAL = "material"
+    MISC = "misc"
+
+
+class BidPriceType(str, PyEnum):
+    """How a single bid_line_item's price was given by the bidder."""
+
+    FIXED = "fixed"            # numeric price, the normal path
+    NEGOTIABLE = "negotiable"  # "Договорная", "по запросу", etc.
+    NOT_INCLUDED = "not_included"  # "не включена", "за отд. плату"
+    ON_REQUEST = "on_request"  # requires further clarification
+
+
 # ---------------------------------------------------------------------------
 # Tender (the work package being put out to bid)
 # ---------------------------------------------------------------------------
@@ -157,7 +181,14 @@ class Tender(Base):
 
 
 class TenderLineItem(Base):
-    """One row of the metraj-keşif tablosu for a tender."""
+    """One row of the metraj-keşif tablosu for a tender.
+
+    Lines can nest one level deep: an outer "package" (e.g. "1. Asphalt
+    paving") may have child rows (1.1 prep, 1.2 asphalt mix, 1.3 finish).
+    Children carry ``parent_id`` pointing at the package and use a
+    ``line_type`` of "work" / "material" so the UI can render them with
+    indentation and the AI knows what kind of price to expect.
+    """
 
     __tablename__ = "tender_line_items"
 
@@ -167,7 +198,21 @@ class TenderLineItem(Base):
         nullable=False,
         index=True,
     )
+    parent_id: Mapped[int | None] = mapped_column(
+        ForeignKey("tender_line_items.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
     order_num: Mapped[int] = mapped_column(Integer, nullable=False)
+    # Free-form label users see (e.g. "1", "1.1", "2.a"). When the AI
+    # extracts a hierarchical document we preserve the original numbering.
+    display_label: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    line_type: Mapped[LineType] = mapped_column(
+        Enum(LineType, name="tender_line_type", values_callable=_enum_values),
+        default=LineType.MISC,
+        server_default=text("'misc'"),
+        nullable=False,
+    )
 
     description: Mapped[str] = mapped_column(Text, nullable=False)
     unit: Mapped[str | None] = mapped_column(String(32), nullable=True)
@@ -244,6 +289,22 @@ class Bid(Base):
         Numeric(18, 2), nullable=False, default=Decimal("0"), server_default=text("0")
     )
 
+    # VAT bookkeeping. ``total_amount`` is the "with VAT" figure for
+    # legacy reasons. ``total_without_vat`` is the net the bidder
+    # actually quotes; both are stored so the UI can flip between them.
+    total_without_vat: Mapped[Decimal] = mapped_column(
+        Numeric(18, 2), nullable=False, default=Decimal("0"), server_default=text("0")
+    )
+    vat_rate: Mapped[Decimal] = mapped_column(
+        Numeric(5, 2), nullable=False, default=Decimal("20"), server_default=text("20")
+    )
+
+    # Optional variant label — same company sometimes submits two or
+    # three different proposed solutions (e.g. material A vs B). The
+    # uniqueness constraint below lets a (tender_id, company_name) pair
+    # exist multiple times as long as variant_label differs.
+    variant_label: Mapped[str | None] = mapped_column(String(120), nullable=True)
+
     status: Mapped[BidStatus] = mapped_column(
         Enum(BidStatus, name="bid_status", values_callable=_enum_values),
         default=BidStatus.INVITED,
@@ -275,9 +336,13 @@ class Bid(Base):
     )
 
     __table_args__ = (
-        # One company can only submit one bid per tender — re-submission
-        # updates the existing row (subject to status rules in the service).
-        UniqueConstraint("tender_id", "company_name", name="uq_bid_tender_company"),
+        # A company can submit multiple "variant" proposals per tender
+        # as long as variant_label distinguishes them. NULL variants
+        # collapse to the company-name-only key (Postgres treats NULLs
+        # as distinct, so two NULLs are allowed — service layer enforces
+        # the no-duplicate rule when no variant is set).
+        UniqueConstraint("tender_id", "company_name", "variant_label",
+                         name="uq_bid_tender_company_variant"),
         CheckConstraint("total_amount >= 0", name="ck_bid_total_nonneg"),
         CheckConstraint("delivery_days IS NULL OR delivery_days >= 0", name="ck_bid_delivery_nonneg"),
     )
@@ -338,6 +403,18 @@ class BidLineItem(Base):
         default=Decimal("0"),
         server_default=text("0"),
     )
+
+    # How the bidder gave the price. FIXED is the normal path; the
+    # other values let us keep "Договорная" or "не включена" rows in
+    # the grid without breaking the numeric totals (raw_text_price
+    # carries the original wording for display).
+    price_type: Mapped[BidPriceType] = mapped_column(
+        Enum(BidPriceType, name="bid_price_type", values_callable=_enum_values),
+        default=BidPriceType.FIXED,
+        server_default=text("'fixed'"),
+        nullable=False,
+    )
+    raw_text_price: Mapped[str | None] = mapped_column(String(120), nullable=True)
 
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
