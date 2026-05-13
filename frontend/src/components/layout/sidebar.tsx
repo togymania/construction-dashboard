@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
 import {
   LayoutDashboard,
@@ -11,38 +12,6 @@ import {
   PanelLeftClose,
   PanelLeft,
 } from "lucide-react";
-
-/**
- * Monotekstroy marka logosu — kendi resmî renkleriyle (koyu lacivert +
- * açık mavi). İki üst üste binmiş chevron (ev çatısı) şekli. SVG inline
- * tutuluyor ki sidebar'ın açık/koyu temasından bağımsız çalışsın.
- */
-function MonotekstroyMark({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 100 100"
-      xmlns="http://www.w3.org/2000/svg"
-      className={className}
-      aria-hidden="true"
-    >
-      {/* 1) Üst dolu trapezoid — koyu lacivert (düz tepe, eğimli yanlar) */}
-      <path
-        d="M 32 14 L 68 14 L 90 48 L 10 48 Z"
-        fill="#143C73"
-      />
-      {/* 2) Orta chevron — açık mavi V (içi boş kemer) */}
-      <polygon
-        points="50,52 88,72 78,72 50,60 22,72 12,72"
-        fill="#1FA3DA"
-      />
-      {/* 3) Alt dolu trapezoid — açık mavi (daha geniş ev tabanı) */}
-      <path
-        d="M 28 76 L 72 76 L 96 92 L 4 92 Z"
-        fill="#1FA3DA"
-      />
-    </svg>
-  );
-}
 
 import { cn } from "@/lib/utils";
 import { Separator } from "@/components/ui/separator";
@@ -163,23 +132,37 @@ export function Sidebar({ className }: { className?: string }) {
             type="button"
             onClick={toggle}
             title="Monotekstroy — Expand sidebar"
-            className="flex h-9 w-9 items-center justify-center rounded-md hover:bg-primary/10 transition-colors"
+            aria-label="Expand sidebar"
+            className="relative flex h-10 w-10 items-center justify-center overflow-hidden rounded-md hover:bg-primary/10 transition-colors"
           >
-            <MonotekstroyMark className="h-6 w-6" />
+            {/* Tam logoyu yerleştir, container w-10 ile kırparak sadece sembol kısmı görünür */}
+            <Image
+              src="/monotekstroy-logo.png"
+              alt="Monotekstroy"
+              width={120}
+              height={40}
+              priority
+              className="h-10 w-auto max-w-none"
+              style={{ objectFit: "contain", objectPosition: "left center" }}
+            />
           </button>
         ) : (
           <>
-            <div className="flex items-center gap-2.5 min-w-0">
-              <MonotekstroyMark className="h-9 w-9 shrink-0" />
-              <span className="font-extrabold tracking-tight truncate text-base leading-none">
-                <span className="text-[#143C73] dark:text-slate-100">MONOTEK</span>
-                <span className="text-[#1FA3DA]">STROY</span>
-              </span>
-            </div>
+            <Link href="/" className="flex items-center min-w-0" aria-label="Monotekstroy">
+              <Image
+                src="/monotekstroy-logo.png"
+                alt="Monotekstroy"
+                width={180}
+                height={40}
+                priority
+                className="h-9 w-auto"
+              />
+            </Link>
             <button
               type="button"
               onClick={toggle}
               title="Collapse sidebar"
+              aria-label="Collapse sidebar"
               className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-primary/10 hover:text-foreground transition-colors"
             >
               <PanelLeftClose className="h-4 w-4" />

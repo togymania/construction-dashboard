@@ -1,0 +1,11 @@
+# Auth bilgisi içerir, repo'ya gitmesin
+playwright-state.json
+
+# Üretilen sunum dosyası
+*.pptx
+
+# Ekran görüntüleri (her makinada yeniden çekilebilir)
+screenshots/*.png
+screenshots/*.jpg
+screenshots/*.jpeg
+!screenshots/.gitkeep
