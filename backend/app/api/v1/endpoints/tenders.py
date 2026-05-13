@@ -76,17 +76,24 @@ async def _recompute_bid_totals(
 ) -> None:
     """Refresh cached totals on a bid from its persisted line items.
 
-    Called after any mutation of bid_line_items so the comparison grid
-    and AI prompts can trust `bid.total_amount` without re-summing.
-
-    ``qty_by_line_id`` is an optional pre-fetched map of
-    tender_line_item.id → quantity. When omitted we look qty up via a
-    direct SQL query rather than touching the ORM relationship (which
-    would trigger a lazy-load and crash under async).
+    Reads bid_line_items via an explicit SELECT instead of the ORM
+    relationship (which would lazy-load under async and crash).
     """
+    # Pull the bid's lines via an explicit query — never touching the
+    # relationship attribute. Safe under async.
+    bls = (
+        (
+            await db.execute(
+                select(BidLineItem).where(BidLineItem.bid_id == bid.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+
     if qty_by_line_id is None:
-        if bid.line_items:
-            line_ids = [bl.tender_line_item_id for bl in bid.line_items]
+        if bls:
+            line_ids = [bl.tender_line_item_id for bl in bls]
             rows = (
                 await db.execute(
                     select(TenderLineItem.id, TenderLineItem.quantity)
@@ -100,7 +107,7 @@ async def _recompute_bid_totals(
     tot_labor = Decimal(0)
     tot_material = Decimal(0)
     tot_amount = Decimal(0)
-    for bl in bid.line_items:
+    for bl in bls:
         qty = qty_by_line_id.get(bl.tender_line_item_id, Decimal(0))
         bl.line_total = (qty * Decimal(bl.unit_price_total or 0)).quantize(
             Decimal("0.01")
@@ -514,18 +521,23 @@ async def update_bid(
         setattr(bid, k, v)
 
     if line_items_payload is not None:
-        # Wipe and re-create -- the simpler, predictable path.
-        for old in list(bid.line_items):
-            await db.delete(old)
+        # Wipe and re-create -- the simpler, predictable path. We use a
+        # bulk DELETE statement instead of iterating bid.line_items to
+        # avoid touching the relationship (which lazy-loads under
+        # async).
+        from sqlalchemy import delete as sa_delete
+
+        await db.execute(
+            sa_delete(BidLineItem).where(BidLineItem.bid_id == bid.id)
+        )
         await db.flush()
-        bid.line_items.clear()
         await _apply_bid_lines(
             db,
             bid,
             [BidLineItemUpsert(**li) for li in line_items_payload],
             bid.tender.line_items,
         )
-        if bid.status == BidStatus.INVITED and bid.line_items:
+        if bid.status == BidStatus.INVITED and line_items_payload:
             bid.status = BidStatus.RECEIVED
             bid.received_at = datetime.now(timezone.utc)
 
@@ -749,7 +761,13 @@ async def _apply_bid_lines(
     lines: list[BidLineItemUpsert],
     tender_line_items: list[TenderLineItem],
 ) -> None:
-    """Replace the bid's line items in-place from an upsert payload."""
+    """Insert new bid_line_items rows for the given upsert payload.
+
+    Avoids touching ``bid.line_items`` (the ORM relationship) on the
+    write path because async sessions can't lazy-load it. Each row is
+    added directly to the session via the FK column; the comparison
+    grid eager-loads when it actually needs the list.
+    """
     line_by_id = {li.id: li for li in tender_line_items}
     qty_by_id = {li.id: Decimal(li.quantity or 0) for li in tender_line_items}
     for upsert in lines:
@@ -771,9 +789,6 @@ async def _apply_bid_lines(
             unit_price_total=tot,
             notes=upsert.notes,
         )
-        bid.line_items.append(bl)
         db.add(bl)
     await db.flush()
-    # Pass the qty map explicitly so _recompute_bid_totals doesn't have
-    # to (lazy-)load the relationship, which would crash under async.
     await _recompute_bid_totals(db, bid, qty_by_id)
