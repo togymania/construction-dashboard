@@ -69,23 +69,39 @@ def _qty_for_line(line_items: list[TenderLineItem], line_id: int) -> Decimal:
     return Decimal(0)
 
 
-async def _recompute_bid_totals(db, bid: Bid) -> None:
+async def _recompute_bid_totals(
+    db,
+    bid: Bid,
+    qty_by_line_id: dict[int, Decimal] | None = None,
+) -> None:
     """Refresh cached totals on a bid from its persisted line items.
 
     Called after any mutation of bid_line_items so the comparison grid
     and AI prompts can trust `bid.total_amount` without re-summing.
+
+    ``qty_by_line_id`` is an optional pre-fetched map of
+    tender_line_item.id → quantity. When omitted we look qty up via a
+    direct SQL query rather than touching the ORM relationship (which
+    would trigger a lazy-load and crash under async).
     """
+    if qty_by_line_id is None:
+        if bid.line_items:
+            line_ids = [bl.tender_line_item_id for bl in bid.line_items]
+            rows = (
+                await db.execute(
+                    select(TenderLineItem.id, TenderLineItem.quantity)
+                    .where(TenderLineItem.id.in_(line_ids))
+                )
+            ).all()
+            qty_by_line_id = {int(r[0]): Decimal(r[1] or 0) for r in rows}
+        else:
+            qty_by_line_id = {}
+
     tot_labor = Decimal(0)
     tot_material = Decimal(0)
     tot_amount = Decimal(0)
     for bl in bid.line_items:
-        # qty * unit_price_total goes into total_amount
-        # Pull qty from the linked tender_line_item — preloaded by caller
-        qty = (
-            Decimal(bl.tender_line_item.quantity or 0)
-            if bl.tender_line_item is not None
-            else Decimal(0)
-        )
+        qty = qty_by_line_id.get(bl.tender_line_item_id, Decimal(0))
         bl.line_total = (qty * Decimal(bl.unit_price_total or 0)).quantize(
             Decimal("0.01")
         )
@@ -735,6 +751,7 @@ async def _apply_bid_lines(
 ) -> None:
     """Replace the bid's line items in-place from an upsert payload."""
     line_by_id = {li.id: li for li in tender_line_items}
+    qty_by_id = {li.id: Decimal(li.quantity or 0) for li in tender_line_items}
     for upsert in lines:
         if upsert.tender_line_item_id not in line_by_id:
             raise HTTPException(
@@ -754,9 +771,9 @@ async def _apply_bid_lines(
             unit_price_total=tot,
             notes=upsert.notes,
         )
-        # eagerly attach the FK target so _recompute can read qty
-        bl.tender_line_item = line_by_id[upsert.tender_line_item_id]
         bid.line_items.append(bl)
         db.add(bl)
     await db.flush()
-    await _recompute_bid_totals(db, bid)
+    # Pass the qty map explicitly so _recompute_bid_totals doesn't have
+    # to (lazy-)load the relationship, which would crash under async.
+    await _recompute_bid_totals(db, bid, qty_by_id)
