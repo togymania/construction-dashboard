@@ -3,7 +3,8 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { Gavel, Plus, Trophy, Users } from "lucide-react";
+import { Gavel, Plus, Trophy, Users, Trash2 } from "lucide-react";
+import { toast } from "sonner";
 
 import {
   Card,
@@ -49,22 +50,30 @@ export default function TendersListPage() {
   const [items, setItems] = useState<TenderListItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    let mounted = true;
-    if (projectId > 0) {
-      api.tenders
-        .listByProject(projectId)
-        .then((d) => mounted && setItems(d))
-        .catch(
-          (e) =>
-            mounted &&
-            setError(e instanceof ApiError ? e.message : "Failed to load tenders"),
-        );
+  async function load() {
+    try {
+      const d = await api.tenders.listByProject(projectId);
+      setItems(d);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Failed to load tenders");
     }
-    return () => {
-      mounted = false;
-    };
+  }
+
+  useEffect(() => {
+    if (projectId > 0) load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
+
+  async function handleDelete(id: number, title: string) {
+    if (!confirm(`Delete tender "${title}"?`)) return;
+    try {
+      await api.tenders.delete(id);
+      toast.success("Tender deleted");
+      load();
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "Delete failed");
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -119,6 +128,7 @@ export default function TendersListPage() {
                   <TableHead className="text-right">Bids</TableHead>
                   <TableHead>Lowest</TableHead>
                   <TableHead>Created</TableHead>
+                  <TableHead></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -171,6 +181,18 @@ export default function TendersListPage() {
                     </TableCell>
                     <TableCell className="text-xs text-muted-foreground">
                       {new Date(t.created_at).toLocaleDateString()}
+                    </TableCell>
+                    <TableCell>
+                      <button
+                        onClick={(e) => {
+                          e.preventDefault();
+                          handleDelete(t.id, t.title);
+                        }}
+                        className="text-muted-foreground transition hover:text-rose-500"
+                        title="Delete tender"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
                     </TableCell>
                   </TableRow>
                 ))}

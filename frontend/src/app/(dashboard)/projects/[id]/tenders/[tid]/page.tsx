@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import {
@@ -10,6 +10,8 @@ import {
   Loader2,
   Plus,
   Trash2,
+  Upload,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -23,9 +25,15 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { api, ApiError } from "@/lib/api-client";
 import { formatRubCompact } from "@/lib/formatters";
-import type { Bid, BidLineItem, Tender } from "@/types/tender";
+import type {
+  Bid,
+  BidLineItem,
+  ExtractedBid,
+  Tender,
+} from "@/types/tender";
 
 function hasAnySplit(t: Tender): boolean {
   return t.bids.some((b) =>
@@ -56,6 +64,10 @@ export default function TenderDetailPage() {
   const [tender, setTender] = useState<Tender | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [awarding, setAwarding] = useState<number | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [extracting, setExtracting] = useState(false);
+  const [draft, setDraft] = useState<ExtractedBid | null>(null);
+  const [savingBid, setSavingBid] = useState(false);
 
   async function load() {
     try {
@@ -63,6 +75,96 @@ export default function TenderDetailPage() {
       setTender(data);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Failed to load tender");
+    }
+  }
+
+  async function handleBidFile(file: File) {
+    setExtracting(true);
+    try {
+      const result = await api.tenders.extractBid(tenderId, file);
+      setDraft(result);
+      toast.success(`Extracted: ${result.company_name}`);
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "Extraction failed");
+    } finally {
+      setExtracting(false);
+      if (fileRef.current) fileRef.current.value = "";
+    }
+  }
+
+  function startManualBid() {
+    if (!tender) return;
+    setDraft({
+      company_name: "",
+      contact_name: null,
+      contact_phone: null,
+      contact_email: null,
+      included_in_price: null,
+      not_included_in_price: null,
+      payment_terms: null,
+      delivery_days: null,
+      notes: null,
+      lines: tender.line_items.map((li) => ({
+        order_num: li.order_num,
+        unit_price_labor: null,
+        unit_price_material: null,
+        unit_price_total: "0",
+      })),
+    });
+  }
+
+  async function saveDraftBid() {
+    if (!draft || !tender) return;
+    if (!draft.company_name.trim()) {
+      toast.error("Company name is required");
+      return;
+    }
+    setSavingBid(true);
+    try {
+      const idByOrder = new Map<number, number>();
+      tender.line_items.forEach((li) => idByOrder.set(li.order_num, li.id));
+
+      await api.tenders.createBid(tender.id, {
+        company_name: draft.company_name.trim(),
+        contact_name: draft.contact_name,
+        contact_phone: draft.contact_phone,
+        contact_email: draft.contact_email,
+        included_in_price: draft.included_in_price,
+        not_included_in_price: draft.not_included_in_price,
+        payment_terms: draft.payment_terms,
+        delivery_days: draft.delivery_days,
+        notes: draft.notes,
+        line_items: draft.lines
+          .map((bl) => {
+            const lineId = idByOrder.get(bl.order_num);
+            if (!lineId) return null;
+            return {
+              tender_line_item_id: lineId,
+              unit_price_labor: bl.unit_price_labor ?? null,
+              unit_price_material: bl.unit_price_material ?? null,
+              unit_price_total: bl.unit_price_total ?? "0",
+            };
+          })
+          .filter((x): x is NonNullable<typeof x> => x !== null),
+      });
+      toast.success("Bid added");
+      setDraft(null);
+      load();
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "Save failed");
+    } finally {
+      setSavingBid(false);
+    }
+  }
+
+  async function handleDeleteTender() {
+    if (!confirm("Delete this tender and all its bids? This cannot be undone.")) return;
+    try {
+      await api.tenders.delete(tenderId);
+      toast.success("Tender deleted");
+      router.push(`/projects/${projectId}/tenders`);
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "Delete failed");
     }
   }
 
@@ -147,13 +249,59 @@ export default function TenderDetailPage() {
             </p>
           </div>
         </div>
-        <Link
-          href={`/projects/${projectId}/tenders/${tenderId}/ai-analysis`}
-        >
-          <Button>
-            <Sparkles className="mr-1 h-4 w-4" /> AI Analizi
+        <div className="flex items-center gap-2">
+          <input
+            ref={fileRef}
+            type="file"
+            accept=".xlsx,.xlsm,.pdf"
+            className="hidden"
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) handleBidFile(f);
+            }}
+          />
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => fileRef.current?.click()}
+            disabled={extracting || tender.line_items.length === 0}
+            title={
+              tender.line_items.length === 0
+                ? "Add line items first"
+                : "Upload one company's quote"
+            }
+          >
+            {extracting ? (
+              <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+            ) : (
+              <Upload className="mr-1 h-4 w-4" />
+            )}
+            Add Bid (File)
           </Button>
-        </Link>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={startManualBid}
+            disabled={tender.line_items.length === 0}
+          >
+            <Plus className="mr-1 h-4 w-4" /> Add Bid (Manual)
+          </Button>
+          <Link
+            href={`/projects/${projectId}/tenders/${tenderId}/ai-analysis`}
+          >
+            <Button>
+              <Sparkles className="mr-1 h-4 w-4" /> AI Analizi
+            </Button>
+          </Link>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={handleDeleteTender}
+            title="Delete tender"
+          >
+            <Trash2 className="h-4 w-4 text-rose-500" />
+          </Button>
+        </div>
       </div>
 
       {/* Comparison grid */}
@@ -452,6 +600,277 @@ export default function TenderDetailPage() {
           </CardContent>
         </Card>
       ) : null}
+
+      {/* Draft bid modal — appears after file extraction or manual click */}
+      {draft && tender ? (
+        <DraftBidModal
+          draft={draft}
+          tender={tender}
+          onChange={setDraft}
+          onCancel={() => setDraft(null)}
+          onSave={saveDraftBid}
+          saving={savingBid}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Inline draft-bid editor (modal)
+// ---------------------------------------------------------------------------
+
+function DraftBidModal({
+  draft,
+  tender,
+  onChange,
+  onCancel,
+  onSave,
+  saving,
+}: {
+  draft: ExtractedBid;
+  tender: Tender;
+  onChange: (d: ExtractedBid) => void;
+  onCancel: () => void;
+  onSave: () => void;
+  saving: boolean;
+}) {
+  // ensure every tender line item has a row (so manual entry doesn't miss any)
+  const linesByOrder = new Map(
+    draft.lines.map((l) => [l.order_num, l]),
+  );
+  const fullRows = tender.line_items.map((li) => {
+    const existing = linesByOrder.get(li.order_num);
+    return {
+      tenderLine: li,
+      bid: existing ?? {
+        order_num: li.order_num,
+        unit_price_labor: null,
+        unit_price_material: null,
+        unit_price_total: "0",
+      },
+    };
+  });
+
+  function setBidField<K extends keyof ExtractedBid>(
+    key: K,
+    val: ExtractedBid[K],
+  ) {
+    onChange({ ...draft, [key]: val });
+  }
+
+  function setLine(
+    orderNum: number,
+    patch: Partial<{
+      unit_price_labor: string | null;
+      unit_price_material: string | null;
+      unit_price_total: string;
+    }>,
+  ) {
+    const existing = linesByOrder.get(orderNum) ?? {
+      order_num: orderNum,
+      unit_price_labor: null,
+      unit_price_material: null,
+      unit_price_total: "0",
+    };
+    const merged = { ...existing, ...patch };
+    // Auto-sync total if labor and material both set
+    if (merged.unit_price_labor != null && merged.unit_price_material != null) {
+      const lab = parseFloat(String(merged.unit_price_labor)) || 0;
+      const mat = parseFloat(String(merged.unit_price_material)) || 0;
+      merged.unit_price_total = String(lab + mat);
+    }
+    const others = draft.lines.filter((l) => l.order_num !== orderNum);
+    onChange({ ...draft, lines: [...others, merged].sort((a, b) => a.order_num - b.order_num) });
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <div className="max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-lg bg-background shadow-xl">
+        <div className="sticky top-0 z-10 flex items-center justify-between border-b bg-background p-4">
+          <div>
+            <h2 className="text-lg font-semibold">Review bid</h2>
+            <p className="text-xs text-muted-foreground">
+              Fix any AI mistakes before saving
+            </p>
+          </div>
+          <Button variant="ghost" size="sm" onClick={onCancel}>
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+
+        <div className="space-y-4 p-4">
+          {/* Company + contact */}
+          <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+            <div>
+              <Label>Company *</Label>
+              <Input
+                value={draft.company_name}
+                onChange={(e) => setBidField("company_name", e.target.value)}
+                placeholder="ООО Стройка"
+              />
+            </div>
+            <div>
+              <Label>Contact</Label>
+              <Input
+                value={draft.contact_name ?? ""}
+                onChange={(e) =>
+                  setBidField("contact_name", e.target.value || null)
+                }
+              />
+            </div>
+            <div>
+              <Label>Phone</Label>
+              <Input
+                value={draft.contact_phone ?? ""}
+                onChange={(e) =>
+                  setBidField("contact_phone", e.target.value || null)
+                }
+              />
+            </div>
+            <div>
+              <Label>Delivery (days)</Label>
+              <Input
+                type="number"
+                value={draft.delivery_days ?? ""}
+                onChange={(e) =>
+                  setBidField(
+                    "delivery_days",
+                    e.target.value ? parseInt(e.target.value, 10) : null,
+                  )
+                }
+              />
+            </div>
+            <div>
+              <Label>Payment terms</Label>
+              <Input
+                value={draft.payment_terms ?? ""}
+                onChange={(e) =>
+                  setBidField("payment_terms", e.target.value || null)
+                }
+              />
+            </div>
+            <div>
+              <Label>Notes</Label>
+              <Input
+                value={draft.notes ?? ""}
+                onChange={(e) => setBidField("notes", e.target.value || null)}
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+            <div>
+              <Label>Included in price</Label>
+              <textarea
+                className="w-full resize-none rounded-md border bg-card p-2 text-sm"
+                rows={2}
+                value={draft.included_in_price ?? ""}
+                onChange={(e) =>
+                  setBidField("included_in_price", e.target.value || null)
+                }
+              />
+            </div>
+            <div>
+              <Label>NOT included</Label>
+              <textarea
+                className="w-full resize-none rounded-md border bg-card p-2 text-sm"
+                rows={2}
+                value={draft.not_included_in_price ?? ""}
+                onChange={(e) =>
+                  setBidField("not_included_in_price", e.target.value || null)
+                }
+              />
+            </div>
+          </div>
+
+          {/* Per-line prices */}
+          <div className="rounded border">
+            <table className="w-full text-xs">
+              <thead className="bg-muted/40">
+                <tr>
+                  <th className="p-2 text-left">#</th>
+                  <th className="p-2 text-left">Description</th>
+                  <th className="p-2 text-left">Unit</th>
+                  <th className="p-2 text-right">Qty</th>
+                  <th className="p-2 text-right">İşçilik</th>
+                  <th className="p-2 text-right">Malzeme</th>
+                  <th className="p-2 text-right">Toplam</th>
+                </tr>
+              </thead>
+              <tbody>
+                {fullRows.map(({ tenderLine, bid }) => (
+                  <tr key={tenderLine.id} className="border-t">
+                    <td className="p-2">{tenderLine.order_num}</td>
+                    <td className="p-2">{tenderLine.description}</td>
+                    <td className="p-2 text-muted-foreground">
+                      {tenderLine.unit ?? "—"}
+                    </td>
+                    <td className="p-2 text-right">
+                      {parseFloat(tenderLine.quantity).toLocaleString()}
+                    </td>
+                    <td className="p-2">
+                      <Input
+                        type="number"
+                        step="any"
+                        className="h-8 text-right"
+                        value={bid.unit_price_labor ?? ""}
+                        onChange={(e) =>
+                          setLine(tenderLine.order_num, {
+                            unit_price_labor: e.target.value || null,
+                          })
+                        }
+                      />
+                    </td>
+                    <td className="p-2">
+                      <Input
+                        type="number"
+                        step="any"
+                        className="h-8 text-right"
+                        value={bid.unit_price_material ?? ""}
+                        onChange={(e) =>
+                          setLine(tenderLine.order_num, {
+                            unit_price_material: e.target.value || null,
+                          })
+                        }
+                      />
+                    </td>
+                    <td className="p-2">
+                      <Input
+                        type="number"
+                        step="any"
+                        className="h-8 text-right"
+                        value={bid.unit_price_total ?? "0"}
+                        onChange={(e) =>
+                          setLine(tenderLine.order_num, {
+                            unit_price_total: e.target.value || "0",
+                          })
+                        }
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div className="sticky bottom-0 flex items-center justify-end gap-2 border-t bg-background p-3">
+          <Button variant="outline" onClick={onCancel}>
+            Cancel
+          </Button>
+          <Button onClick={onSave} disabled={saving}>
+            {saving ? (
+              <>
+                <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                Saving…
+              </>
+            ) : (
+              "Save bid"
+            )}
+          </Button>
+        </div>
+      </div>
     </div>
   );
 }

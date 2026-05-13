@@ -254,6 +254,14 @@ export const api = {
         { method: "POST", body: fd },
       );
     },
+    extractBid: (tenderId: number, file: File) => {
+      const fd = new FormData();
+      fd.append("file", file);
+      return request<import("@/types/tender").ExtractedBid>(
+        `/tenders/${tenderId}/bids/extract`,
+        { method: "POST", body: fd },
+      );
+    },
     addLineItem: (
       tenderId: number,
       data: { order_num: number; description: string; unit?: string | null; quantity?: number | string; notes?: string | null },

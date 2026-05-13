@@ -42,6 +42,7 @@ from app.schemas.tender import (
     BidLineItemUpsert,
     BidRead,
     BidUpdate,
+    ExtractedBid,
     TenderAIAnalysis,
     TenderCreate,
     TenderExtraction,
@@ -615,6 +616,48 @@ async def extract_tender(
         lang=lang,
     )
     return draft
+
+
+@router.post(
+    "/tenders/{tender_id}/bids/extract",
+    response_model=ExtractedBid,
+    summary="Upload one company's quote file and match it to this tender's line items",
+)
+async def extract_single_bid(
+    tender_id: int,
+    db: DBSession,
+    lang: UserLang,
+    file: UploadFile = File(...),
+    user: User = Depends(require_roles(UserRole.ADMIN, UserRole.PROJECT_MANAGER)),
+) -> ExtractedBid:
+    """Parse a single bidder's quotation against an existing tender.
+
+    The returned ``ExtractedBid`` carries the company info plus a list of
+    line prices keyed by ``order_num`` — the frontend maps those to real
+    line_item IDs at save time. Nothing is persisted; the user reviews
+    and edits before submitting via ``POST /tenders/{tid}/bids``.
+    """
+    tender = (
+        await db.execute(
+            select(Tender)
+            .where(Tender.id == tender_id)
+            .options(selectinload(Tender.line_items))
+        )
+    ).scalar_one_or_none()
+    if tender is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Tender not found")
+    if file.filename is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Missing filename")
+
+    raw = await file.read()
+    from app.services.tender_extraction import extract_bid_from_file
+
+    return extract_bid_from_file(
+        raw_bytes=raw,
+        filename=file.filename,
+        line_items=tender.line_items,
+        lang=lang,
+    )
 
 
 # ---------------------------------------------------------------------------

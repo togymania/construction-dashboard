@@ -21,6 +21,7 @@ from decimal import Decimal
 from typing import Any
 
 from app.core.config import settings
+from app.models.tender import TenderLineItem
 from app.schemas.tender import (
     ExtractedBid,
     ExtractedBidLine,
@@ -338,6 +339,159 @@ def _shape_to_extraction(parsed: dict[str, Any], fallback_title: str) -> TenderE
         bids=bids,
         source="llm",
         warnings=[str(w) for w in (parsed.get("warnings") or []) if w],
+    )
+
+
+# ---------------------------------------------------------------------------
+# Per-bid extraction (single company's quote against an existing tender)
+# ---------------------------------------------------------------------------
+
+
+def extract_bid_from_file(
+    *,
+    raw_bytes: bytes,
+    filename: str,
+    line_items: list[TenderLineItem],
+    lang: str = "EN",
+) -> ExtractedBid:
+    """Extract a single company's bid from a quote file.
+
+    Unlike :func:`extract_tender_from_file`, the tender already exists and
+    its line items are known; the LLM's job is just to identify the
+    bidder, pull contact info and quote terms, and match each priced row
+    to one of the supplied ``line_items`` by description similarity. The
+    matched prices come back keyed by ``order_num`` so the caller can
+    look up the real ``tender_line_item.id``.
+    """
+    warnings: list[str] = []
+    text_blob, fallback_company = _file_to_text(raw_bytes, filename, warnings)
+
+    api_key = (settings.ANTHROPIC_API_KEY or "").strip()
+    if not api_key:
+        return ExtractedBid(
+            company_name=fallback_company or "Unknown",
+            notes="ANTHROPIC_API_KEY missing — manual entry required",
+        )
+
+    try:
+        bid = _llm_extract_single_bid(
+            text_blob,
+            line_items,
+            fallback_company,
+            api_key,
+            lang=lang,
+        )
+        return bid
+    except Exception as exc:  # noqa: BLE001
+        return ExtractedBid(
+            company_name=fallback_company or "Unknown",
+            notes=f"AI extraction failed: {exc!r}",
+        )
+
+
+def _llm_extract_single_bid(
+    text_blob: str,
+    line_items: list[TenderLineItem],
+    fallback_company: str,
+    api_key: str,
+    *,
+    lang: str = "EN",
+) -> ExtractedBid:
+    import anthropic  # type: ignore
+
+    client = anthropic.Anthropic(
+        api_key=api_key, timeout=settings.LLM_TIMEOUT_SECONDS
+    )
+    snippet = text_blob[:60_000]
+    lang_name = "Turkish" if lang.upper() == "TR" else "English"
+
+    # Present the existing line items so Claude can match against them
+    items_block = "\n".join(
+        f"  #{li.order_num} | {li.description} | unit: {li.unit or '-'} | qty: {li.quantity}"
+        for li in line_items
+    )
+
+    prompt = (
+        "You are a structured-extraction assistant for a construction "
+        "company. The user already created a tender with the line items "
+        "listed below. The attached file is ONE company's quotation for "
+        "this tender. Your job is to:\n"
+        "  1. Identify the company name and contact info.\n"
+        "  2. For each priced line in the file, match it to one of the "
+        "tender line items below by description similarity and return the "
+        "unit price keyed by `order_num`. If a line in the file doesn't "
+        "match any tender line item, skip it (don't invent matches).\n"
+        "  3. If the source separates işçilik (labor) and malzeme "
+        "(material) per line, fill both unit_price_labor and "
+        "unit_price_material (total = labor + material). If only a "
+        "combined unit price is given, fill ONLY unit_price_total and "
+        "leave labor/material as null.\n\n"
+        f"Write narrative fields in {lang_name}; keep company names and "
+        "units in their original script.\n\n"
+        "TENDER LINE ITEMS (match against these):\n"
+        f"{items_block}\n\n"
+        "BIDDER FILE CONTENT:\n"
+        "```\n"
+        f"{snippet}\n"
+        "```\n\n"
+        "Return ONLY this JSON object (no prose around it):\n"
+        "{\n"
+        '  "company_name": "...",\n'
+        '  "contact_name": "...",\n'
+        '  "contact_phone": "...",\n'
+        '  "contact_email": "...",\n'
+        '  "included_in_price": "what the bidder said is included",\n'
+        '  "not_included_in_price": "...",\n'
+        '  "payment_terms": "...",\n'
+        '  "delivery_days": <int|null>,\n'
+        '  "notes": "...",\n'
+        '  "lines": [\n'
+        '    { "order_num": 1, "unit_price_labor": null, "unit_price_material": null, "unit_price_total": 1500 }\n'
+        "  ]\n"
+        "}\n"
+    )
+    msg = client.messages.create(
+        model=settings.ANTHROPIC_MODEL,
+        max_tokens=2500,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    raw = msg.content[0].text if msg.content else "{}"
+    parsed = json.loads(_extract_json_block(raw))
+
+    lines: list[ExtractedBidLine] = []
+    valid_orders = {li.order_num for li in line_items}
+    for bl in parsed.get("lines") or []:
+        try:
+            order_num = int(bl.get("order_num") or 0)
+            if order_num not in valid_orders:
+                continue
+            lab = _to_decimal_opt(bl.get("unit_price_labor"))
+            mat = _to_decimal_opt(bl.get("unit_price_material"))
+            tot = _to_decimal(bl.get("unit_price_total"))
+            if (lab is not None or mat is not None) and tot == 0:
+                tot = (lab or Decimal(0)) + (mat or Decimal(0))
+            lines.append(
+                ExtractedBidLine(
+                    order_num=order_num,
+                    unit_price_labor=lab,
+                    unit_price_material=mat,
+                    unit_price_total=tot,
+                )
+            )
+        except Exception:
+            continue
+
+    return ExtractedBid(
+        company_name=str(parsed.get("company_name") or fallback_company or "Unknown").strip(),
+        contact_name=_str_or_none(parsed.get("contact_name")),
+        contact_phone=_str_or_none(parsed.get("contact_phone")),
+        contact_email=_str_or_none(parsed.get("contact_email")),
+        included_in_price=_str_or_none(parsed.get("included_in_price")),
+        not_included_in_price=_str_or_none(parsed.get("not_included_in_price")),
+        payment_terms=_str_or_none(parsed.get("payment_terms")),
+        delivery_days=_to_int_opt(parsed.get("delivery_days")),
+        notes=_str_or_none(parsed.get("notes")),
+        lines=lines,
     )
 
 
