@@ -20,19 +20,19 @@ import {
 function MonotekstroyMark({ className }: { className?: string }) {
   return (
     <svg
-      viewBox="0 0 100 64"
+      viewBox="0 0 100 100"
       xmlns="http://www.w3.org/2000/svg"
       className={className}
       aria-hidden="true"
     >
-      {/* Üst chevron — koyu lacivert */}
+      {/* Üst chevron — içi boş ev çatısı (koyu lacivert) */}
       <polygon
-        points="50,2 100,32 84,32 50,12 16,32 0,32"
+        points="50,12 95,50 76,50 50,28 24,50 5,50"
         fill="#143C73"
       />
-      {/* Alt chevron — açık mavi */}
+      {/* Alt yamuk — dolu ev tabanı (açık mavi) */}
       <polygon
-        points="50,22 100,52 84,52 50,32 16,52 0,52"
+        points="50,48 95,90 5,90"
         fill="#1FA3DA"
       />
     </svg>
@@ -164,8 +164,8 @@ export function Sidebar({ className }: { className?: string }) {
           </button>
         ) : (
           <>
-            <div className="flex items-center gap-2 min-w-0">
-              <MonotekstroyMark className="h-8 w-8 shrink-0" />
+            <div className="flex items-center gap-2.5 min-w-0">
+              <MonotekstroyMark className="h-9 w-9 shrink-0" />
               <span className="font-extrabold tracking-tight truncate text-base leading-none">
                 <span className="text-[#143C73] dark:text-slate-100">MONOTEK</span>
                 <span className="text-[#1FA3DA]">STROY</span>
