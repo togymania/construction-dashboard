@@ -120,10 +120,11 @@ export function Sidebar({ className }: { className?: string }) {
         className
       )}
     >
-      {/* Brand row + collapse toggle */}
+      {/* Brand row + collapse toggle — beyaz zemin, logo'nun kendi beyaz
+          background'iyle sorunsuz birleşir; dark mode'da hafif kart tonu */}
       <div
         className={cn(
-          "flex h-16 items-center border-b",
+          "flex h-20 items-center border-b bg-white dark:bg-card",
           collapsed ? "justify-center px-2" : "justify-between px-4"
         )}
       >
@@ -133,16 +134,16 @@ export function Sidebar({ className }: { className?: string }) {
             onClick={toggle}
             title="Monotekstroy — Expand sidebar"
             aria-label="Expand sidebar"
-            className="relative flex h-10 w-10 items-center justify-center overflow-hidden rounded-md hover:bg-primary/10 transition-colors"
+            className="relative flex h-12 w-12 items-center justify-center overflow-hidden rounded-md hover:bg-primary/10 transition-colors"
           >
-            {/* Tam logoyu yerleştir, container w-10 ile kırparak sadece sembol kısmı görünür */}
+            {/* Tam logoyu yerleştir, container w-12 ile kırparak sadece sembol kısmı görünür */}
             <Image
               src="/monotekstroy-logo.png"
               alt="Monotekstroy"
-              width={120}
-              height={40}
+              width={144}
+              height={48}
               priority
-              className="h-10 w-auto max-w-none"
+              className="h-12 w-auto max-w-none"
               style={{ objectFit: "contain", objectPosition: "left center" }}
             />
           </button>
@@ -152,10 +153,10 @@ export function Sidebar({ className }: { className?: string }) {
               <Image
                 src="/monotekstroy-logo.png"
                 alt="Monotekstroy"
-                width={180}
-                height={40}
+                width={240}
+                height={64}
                 priority
-                className="h-9 w-auto"
+                className="h-14 w-auto"
               />
             </Link>
             <button
