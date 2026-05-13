@@ -43,7 +43,7 @@ export function RegisterForm() {
     <Card>
       <CardHeader>
         <CardTitle>Create account</CardTitle>
-        <CardDescription>Get started with ConstructHub</CardDescription>
+        <CardDescription>Get started with Monotekstroy</CardDescription>
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">

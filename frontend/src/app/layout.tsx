@@ -22,8 +22,8 @@ const jetBrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Construction Dashboard",
-  description: "Enterprise Construction Management Dashboard",
+  title: "Monotekstroy",
+  description: "Monotekstroy — AI Destekli İnşaat Proje Yönetimi",
 };
 
 export default function RootLayout({

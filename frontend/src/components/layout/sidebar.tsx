@@ -7,11 +7,37 @@ import {
   LayoutDashboard,
   Briefcase,
   Settings,
-  HardHat,
   Tags,
   PanelLeftClose,
   PanelLeft,
 } from "lucide-react";
+
+/**
+ * Monotekstroy marka logosu — kendi resmî renkleriyle (koyu lacivert +
+ * açık mavi). İki üst üste binmiş chevron (ev çatısı) şekli. SVG inline
+ * tutuluyor ki sidebar'ın açık/koyu temasından bağımsız çalışsın.
+ */
+function MonotekstroyMark({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 100 64"
+      xmlns="http://www.w3.org/2000/svg"
+      className={className}
+      aria-hidden="true"
+    >
+      {/* Üst chevron — koyu lacivert */}
+      <polygon
+        points="50,2 100,32 84,32 50,12 16,32 0,32"
+        fill="#143C73"
+      />
+      {/* Alt chevron — açık mavi */}
+      <polygon
+        points="50,22 100,52 84,52 50,32 16,52 0,52"
+        fill="#1FA3DA"
+      />
+    </svg>
+  );
+}
 
 import { cn } from "@/lib/utils";
 import { Separator } from "@/components/ui/separator";
@@ -131,19 +157,18 @@ export function Sidebar({ className }: { className?: string }) {
           <button
             type="button"
             onClick={toggle}
-            title="Expand sidebar"
-            className="flex h-9 w-9 items-center justify-center rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+            title="Monotekstroy — Expand sidebar"
+            className="flex h-9 w-9 items-center justify-center rounded-md hover:bg-primary/10 transition-colors"
           >
-            <HardHat className="h-4 w-4" />
+            <MonotekstroyMark className="h-6 w-6" />
           </button>
         ) : (
           <>
             <div className="flex items-center gap-2 min-w-0">
-              <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary text-primary-foreground shrink-0">
-                <HardHat className="h-4 w-4" />
-              </div>
-              <span className="font-semibold tracking-tight truncate">
-                ConstructHub
+              <MonotekstroyMark className="h-8 w-8 shrink-0" />
+              <span className="font-extrabold tracking-tight truncate text-base leading-none">
+                <span className="text-[#143C73] dark:text-slate-100">MONOTEK</span>
+                <span className="text-[#1FA3DA]">STROY</span>
               </span>
             </div>
             <button
