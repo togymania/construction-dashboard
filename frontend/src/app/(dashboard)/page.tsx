@@ -25,6 +25,7 @@ import { api } from "@/lib/api-client";
 import type { Project } from "@/types/project";
 import type { KPIMetric, DashboardStats } from "@/types/dashboard";
 import { DailyBriefingCard } from "@/components/dashboard/daily-briefing-card";
+import { DataQualityCard } from "@/components/dashboard/data-quality-card";
 
 const kpiIcons = {
   active_projects: Briefcase,
@@ -138,6 +139,10 @@ export default function DashboardPage() {
           {error}
         </div>
       )}
+
+      {/* Data Quality call-to-action: imported ledger rows missing
+          budget code / subcontractor link */}
+      <DataQualityCard />
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>

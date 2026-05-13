@@ -170,6 +170,57 @@ async def get_daily_briefing(
     return briefing
 
 
+# ---------- Data Quality summary ----------
+
+
+@router.get(
+    "/data-quality",
+    summary="Counts of dirty ledger rows the user should clean up",
+)
+async def get_data_quality_summary(
+    user: CurrentUser,
+    db: DBSession,
+) -> dict:
+    """Lightweight counts powering the Data Quality dashboard card.
+
+    Reports portfolio-wide totals (LedgerEntry isn't project-scoped at
+    the row level — unassigned rows are by definition not attached to a
+    project yet). The user clicks through to Expenses to clean these up.
+    """
+    from sqlalchemy import func
+    from app.models.ledger_entry import LedgerEntry, LedgerEntryType
+
+    uncategorized = int((await db.execute(
+        select(func.count(LedgerEntry.id)).where(LedgerEntry.budget_code.is_(None))
+    )).scalar_one() or 0)
+    unassigned = int((await db.execute(
+        select(func.count(LedgerEntry.id)).where(
+            LedgerEntry.subcontractor_id.is_(None),
+            LedgerEntry.entry_type == LedgerEntryType.EXPENSE,
+        )
+    )).scalar_one() or 0)
+    total = int((await db.execute(
+        select(func.count(LedgerEntry.id))
+    )).scalar_one() or 0)
+    dirty = uncategorized + unassigned
+    ratio = (dirty / total) if total > 0 else 0.0
+
+    if ratio >= 0.4:
+        level = "HIGH"
+    elif ratio >= 0.15:
+        level = "MEDIUM"
+    else:
+        level = "LOW"
+
+    return {
+        "uncategorized_count": uncategorized,
+        "unassigned_count": unassigned,
+        "total_entries": total,
+        "dirty_ratio": round(ratio, 3),
+        "risk_level": level,
+    }
+
+
 # -- padding so we always overwrite the previous on-disk size -------------
 # The dev sandbox occasionally fails to truncate when a smaller payload is
 # written, leaving stale bytes from the prior version at the tail. Keeping

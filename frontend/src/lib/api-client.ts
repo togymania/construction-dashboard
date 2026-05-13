@@ -79,7 +79,11 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-import type { Project, ProjectExecutiveReport } from "@/types/project";
+import type {
+  Project,
+  ProjectAIAnalysis,
+  ProjectExecutiveReport,
+} from "@/types/project";
 import type { DailyBriefing, DashboardStats } from "@/types/dashboard";
 import type { User, TokenResponse } from "@/lib/auth";
 import type {
@@ -184,6 +188,21 @@ export const api = {
       request<ProjectExecutiveReport>(
         "/projects/" + id + "/executive-report" + (forceRefresh ? "?force_refresh=true" : "")
       ),
+    aiAnalysis: (id: number, forceRefresh = false) =>
+      request<ProjectAIAnalysis>(
+        "/projects/" + id + "/ai-analysis" + (forceRefresh ? "?force_refresh=true" : "")
+      ),
+    eac: (id: number) =>
+      request<{
+        bac: number;
+        ac: number;
+        ev: number;
+        cpi: number;
+        eac: number;
+        vac: number;
+        progress_pct: number;
+        status: "OVER_BUDGET" | "ON_TRACK" | "UNDER_BUDGET" | "UNKNOWN";
+      }>("/projects/" + id + "/eac"),
   },
   dashboard: {
     stats: () => request<DashboardStats>("/dashboard/stats"),
@@ -191,6 +210,14 @@ export const api = {
       request<DailyBriefing>(
         "/dashboard/daily-briefing" + (forceRefresh ? "?force_refresh=true" : "")
       ),
+    dataQuality: () =>
+      request<{
+        uncategorized_count: number;
+        unassigned_count: number;
+        total_entries: number;
+        dirty_ratio: number;
+        risk_level: "LOW" | "MEDIUM" | "HIGH";
+      }>("/dashboard/data-quality"),
   },
   budgetCategories: {
     list: (includeInactive = false) =>

@@ -12,6 +12,7 @@ from app.schemas.project import (
     ProjectResponse,
     ProjectUpdate,
 )
+from app.schemas.project_ai_analysis import ProjectAIAnalysis
 
 router = APIRouter(prefix="/projects", tags=["Projects"])
 
@@ -174,6 +175,89 @@ async def delete_project(
     await db.commit()
 
 
+# ---------- EAC (Earned Value Management) ----------
+
+
+@router.get(
+    "/{project_id}/eac",
+    summary="Project Earned-Value metrics (BAC/AC/EV/CPI/EAC/VAC)",
+)
+async def get_eac(
+    project_id: int,
+    user: CurrentUser,
+    db: DBSession,
+) -> dict:
+    """Compute Earned Value Management figures for a project.
+
+    Returns a dict with:
+      bac  -- Budget at Completion (sum of budget_items.planned_amount,
+              falling back to project.budget_rub when items are absent)
+      ac   -- Actual Cost: ledger EXPENSE + Expense rows for this project
+      ev   -- Earned Value = progress_pct * BAC
+      cpi  -- Cost Performance Index = EV / AC (1.0 when AC==0)
+      eac  -- Estimate at Completion = AC + (BAC - EV) / CPI
+      vac  -- Variance at Completion = BAC - EAC (positive = under budget)
+      status -- categorical UNDER_BUDGET / ON_TRACK / OVER_BUDGET / UNKNOWN
+    """
+    from decimal import Decimal
+    from sqlalchemy import func
+    from app.models.budget import BudgetItem
+    from app.models.expense import Expense
+    from app.models.ledger_entry import LedgerEntry, LedgerEntryType
+    from app.models.subcontractor import SubcontractorContract
+
+    project = await db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")
+
+    bac = Decimal((await db.execute(
+        select(func.coalesce(func.sum(BudgetItem.planned_amount), 0))
+        .where(BudgetItem.project_id == project_id)
+    )).scalar_one() or 0)
+    if bac == 0:
+        bac = Decimal(project.budget_rub or 0)
+
+    ledger_ac = Decimal((await db.execute(
+        select(func.coalesce(func.sum(LedgerEntry.amount), 0))
+        .join(SubcontractorContract, SubcontractorContract.id == LedgerEntry.contract_id)
+        .where(
+            SubcontractorContract.project_id == project_id,
+            LedgerEntry.entry_type == LedgerEntryType.EXPENSE,
+        )
+    )).scalar_one() or 0)
+    expense_ac = Decimal((await db.execute(
+        select(func.coalesce(func.sum(Expense.amount), 0))
+        .where(Expense.project_id == project_id)
+    )).scalar_one() or 0)
+    ac = ledger_ac + expense_ac
+
+    progress = float(project.progress_pct or 0)
+    ev = bac * Decimal(progress / 100.0) if bac > 0 else Decimal(0)
+    cpi = float(ev / ac) if ac > 0 else 1.0
+    eac = ac + (bac - ev) / Decimal(cpi if cpi > 0 else 1.0)
+    vac = bac - eac
+
+    if bac == 0:
+        eac_status = "UNKNOWN"
+    elif eac > bac * Decimal("1.05"):
+        eac_status = "OVER_BUDGET"
+    elif eac < bac * Decimal("0.95"):
+        eac_status = "UNDER_BUDGET"
+    else:
+        eac_status = "ON_TRACK"
+
+    return {
+        "bac": float(bac),
+        "ac": float(ac),
+        "ev": float(ev),
+        "cpi": round(cpi, 3),
+        "eac": float(eac),
+        "vac": float(vac),
+        "progress_pct": progress,
+        "status": eac_status,
+    }
+
+
 # ---------- Executive Report (Faz 5) ----------
 
 
@@ -219,3 +303,45 @@ async def get_executive_report(
     report = ProjectExecutiveReport(**payload)
     insights_cache.set(cache_key, report)  # type: ignore[arg-type]
     return report
+
+
+# Cache key offset for AI analysis — disjoint from the others.
+_AI_ANALYSIS_KEY_OFFSET = 3_000_000
+
+
+@router.get(
+    "/{project_id}/ai-analysis",
+    response_model=ProjectAIAnalysis,
+    summary="Six-section AI project control & risk analysis",
+)
+async def get_ai_analysis(
+    project_id: int,
+    user: CurrentUser,
+    db: DBSession,
+    lang: UserLang,
+    force_refresh: bool = Query(False, description="Bypass cache and re-generate"),
+) -> ProjectAIAnalysis:
+    """Run the full schedule + data quality + finance + productivity +
+    risk + executive analysis for a project.
+
+    Cached for 15 minutes per (project, language) so demo refreshes feel
+    instant while the underlying Claude call is gated. Pass
+    ``force_refresh=true`` to re-run.
+    """
+    from app.services import insights_cache
+    from app.services.project_ai_analysis import build_ai_analysis
+
+    cache_key = (project_id + _AI_ANALYSIS_KEY_OFFSET) * 10 + (
+        1 if lang == "TR" else 0
+    )
+    if not force_refresh:
+        cached = insights_cache.get(cache_key)
+        if cached is not None:
+            return cached  # type: ignore[return-value]
+
+    analysis = await build_ai_analysis(db, project_id, lang=lang)
+    if analysis is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")
+
+    insights_cache.set(cache_key, analysis)  # type: ignore[arg-type]
+    return analysis

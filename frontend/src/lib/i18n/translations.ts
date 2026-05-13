@@ -22,9 +22,14 @@ export const translations = {
       schedule: "Schedule",
       risks: "Risks",
       reports: "Reports",
+      aiAnalysis: "AI Analysis",
       settings: "Settings",
       budgetCategories: "Budget Categories",
       logout: "Logout",
+    },
+    aiAnalysis: {
+      title: "AI Project Analysis",
+      subtitle: "Schedule, finance, risk and productivity synthesized by AI",
     },
     project: {
       backToProjects: "All projects",
@@ -252,9 +257,14 @@ export const translations = {
       schedule: "Takvim",
       risks: "Riskler",
       reports: "Raporlar",
+      aiAnalysis: "AI Analizi",
       settings: "Ayarlar",
       budgetCategories: "Bütçe Kategorileri",
       logout: "Çıkış",
+    },
+    aiAnalysis: {
+      title: "AI Proje Analizi",
+      subtitle: "AI tarafından sentezlenmiş takvim, finans, risk ve verimlilik",
     },
     project: {
       backToProjects: "Tüm projeler",

@@ -26,6 +26,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useProject } from "@/components/providers/project-provider";
 import { formatRubCompact, formatLabel, formatPercent } from "@/lib/formatters";
 import type { ProjectStatus, ProjectHealth } from "@/types/project";
+import { EACWidget } from "@/components/projects/eac-widget";
 
 const STATUS_VARIANT: Record<ProjectStatus, "default" | "secondary" | "outline"> = {
   planning: "outline",
@@ -187,6 +188,9 @@ export default function ProjectOverviewPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Earned-Value forecast — bütçe aşımını önceden yakalayan EAC widget */}
+      <EACWidget projectId={project.id} />
 
       {/* Module quick-launch grid */}
       <div>

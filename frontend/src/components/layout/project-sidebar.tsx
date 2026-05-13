@@ -12,6 +12,7 @@ import {
   AlertTriangle,
   FileBarChart,
   Wallet,
+  Sparkles,
   ChevronLeft,
 } from "lucide-react";
 
@@ -39,6 +40,7 @@ const PROJECT_NAV: NavItem[] = [
   { tKey: "nav.schedule", fallback: "Schedule", segment: "schedule", icon: Calendar },
   { tKey: "nav.risks", fallback: "Risks", segment: "risks", icon: AlertTriangle },
   { tKey: "nav.reports", fallback: "Reports", segment: "reports", icon: FileBarChart },
+  { tKey: "nav.aiAnalysis", fallback: "AI Analysis", segment: "ai-analysis", icon: Sparkles },
 ];
 
 interface Props {
