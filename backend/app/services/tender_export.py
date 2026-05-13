@@ -128,6 +128,13 @@ def build_tdf_workbook(tender: Tender) -> bytes:
         safe_title = safe_title.replace(bad, " ")
     ws.title = safe_title or "КП Форма"
 
+    # Şablonda footer satırları (R18, R21, R22, R23, R27, R28, R29) her biri
+    # tek bir merged blok (I18:M18) olarak gelir — yani sadece 1 bidder için
+    # alan ayrılmış. Bunları parçalayıp her bidder için ayrı slot açıyoruz:
+    #     I-J → Bidder 1
+    #     L-M → Bidder 2
+    _split_footer_merges(ws, rows=[18, 21, 22, 23, 27, 28, 29])
+
     # Header
     ws["B7"] = tender.title or ""
 
@@ -214,6 +221,38 @@ def build_tdf_workbook(tender: Tender) -> bytes:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _split_footer_merges(ws: Worksheet, rows: list[int]) -> None:
+    """Şablondaki I:M merged footer bloklarını I:J ve L:M olarak ikiye böl.
+
+    Şablon sadece 1 bidder için footer alanı bırakmış; biz 2 bidder için
+    iki ayrı slot lazım. Merged range'leri unmerge edip yeni iki merged
+    blok oluşturuyoruz. K sütunu (separator) merged dışında kalır.
+    """
+    for row in rows:
+        # Aynı satırı kaplayan tüm merged range'leri bul (ranges set'i
+        # üzerinde iterate ederken modifiye etmemek için kopyala).
+        to_unmerge: list[str] = []
+        for mr in list(ws.merged_cells.ranges):
+            if mr.min_row == row and mr.max_row == row:
+                # I:M aralığını içeren herhangi bir merge
+                if mr.min_col <= 9 and mr.max_col >= 13:
+                    to_unmerge.append(str(mr))
+        for ref in to_unmerge:
+            try:
+                ws.unmerge_cells(ref)
+            except Exception:
+                pass
+        # Yeni iki slot
+        try:
+            ws.merge_cells(start_row=row, start_column=9, end_row=row, end_column=10)
+        except Exception:
+            pass
+        try:
+            ws.merge_cells(start_row=row, start_column=12, end_row=row, end_column=13)
+        except Exception:
+            pass
 
 
 def _find_bid_line(bid: Bid, line_id: int) -> BidLineItem | None:
