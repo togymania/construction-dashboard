@@ -1,6 +1,7 @@
 ﻿"use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import {
   Briefcase,
   Wallet,
@@ -9,6 +10,8 @@ import {
   CheckCircle2,
   Circle,
   Loader2,
+  Lock,
+  Users,
 } from "lucide-react";
 
 import {
@@ -25,6 +28,8 @@ import type { Project } from "@/types/project";
 import type { KPIMetric, DashboardStats } from "@/types/dashboard";
 import { DailyBriefingCard } from "@/components/dashboard/daily-briefing-card";
 import { DataQualityCard } from "@/components/dashboard/data-quality-card";
+import { Button } from "@/components/ui/button";
+import { useUser } from "@/components/providers/user-provider";
 
 const kpiIcons = {
   active_projects: Briefcase,
@@ -67,6 +72,9 @@ function KPISkeleton() {
 }
 
 export default function DashboardPage() {
+  const { user } = useUser();
+  const isWorkforceOnly = user?.role === "workforce_editor";
+
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [projects, setProjects] = useState<Project[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -101,6 +109,43 @@ export default function DashboardPage() {
 
   const isLoading = !stats && !projects && !error;
   const upcomingMilestones = projects?.filter((p) => p.status === "active").slice(0, 4) ?? [];
+
+  // WORKFORCE_EDITOR rolündeki kullanıcılar yönetici panelini göremez —
+  // hesabın erişim profili sadece "İşgücü" modülüne sınırlı. Onlara
+  // boş ekran yerine net bir bilgi kartı ve doğrudan İşgücü modülüne
+  // yönlendirme linki gösteriyoruz.
+  if (isWorkforceOnly) {
+    return (
+      <div className="flex min-h-[60vh] items-center justify-center">
+        <Card className="max-w-md border-amber-200 bg-amber-50/40 dark:bg-amber-950/20">
+          <CardHeader className="space-y-3">
+            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-amber-100 dark:bg-amber-950/60">
+              <Lock className="h-6 w-6 text-amber-600 dark:text-amber-400" />
+            </div>
+            <CardTitle className="text-xl">Sınırlı erişim</CardTitle>
+            <CardDescription className="leading-relaxed">
+              Hesabınız yalnızca <span className="font-semibold">İşgücü</span>{" "}
+              modülünü kullanabilir. Panel, finansal göstergeler, tüm
+              proje listesi ve diğer modüller bu hesap için kapalı.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              Devam etmek için projeler listesinden ilgili projeye girip
+              soldan <span className="font-semibold">İşgücü</span> sekmesini
+              açın.
+            </p>
+            <Link href="/projects">
+              <Button className="w-full gap-2">
+                <Users className="h-4 w-4" />
+                Projelere git
+              </Button>
+            </Link>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
