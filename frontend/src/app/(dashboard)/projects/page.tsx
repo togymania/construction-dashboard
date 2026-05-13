@@ -308,9 +308,11 @@ export default function ProjectsPage() {
                             <DropdownMenuItem onClick={() => handleOpenProject(p)}>
                               Open Project
                             </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => handleViewBudget(p)}>
-                              View Budget
-                            </DropdownMenuItem>
+                            {user?.role !== "workforce_editor" && (
+                              <DropdownMenuItem onClick={() => handleViewBudget(p)}>
+                                View Budget
+                              </DropdownMenuItem>
+                            )}
                             {canEdit && (
                               <DropdownMenuItem onClick={() => handleEdit(p)}>
                                 Edit
