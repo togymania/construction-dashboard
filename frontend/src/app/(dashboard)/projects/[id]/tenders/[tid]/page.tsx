@@ -19,6 +19,7 @@ import {
   ChevronRight,
   ChevronDown,
   HelpCircle,
+  Pencil,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -162,6 +163,9 @@ export default function TenderDetailPage() {
   const fileRef = useRef<HTMLInputElement>(null);
   const [extracting, setExtracting] = useState(false);
   const [draft, setDraft] = useState<ExtractedBid | null>(null);
+  // When non-null, the draft modal is editing this bid instead of creating
+  // a new one — saveDraftBid switches to PATCH /bids/{id}.
+  const [editingBidId, setEditingBidId] = useState<number | null>(null);
   const [savingBid, setSavingBid] = useState(false);
   const [viewMode, setViewMode] = useState<"simple" | "detailed">("simple");
   const [showMarketBox, setShowMarketBox] = useState(false);
@@ -232,6 +236,54 @@ export default function TenderDetailPage() {
         raw_text_price: null,
       })),
     });
+    setEditingBidId(null);
+  }
+
+  /**
+   * Open the draft modal pre-filled with an existing bid so the user can
+   * fix anything (typo in price, wrong variant label, missed line). Save
+   * goes through PATCH /bids/{id}.
+   */
+  function startEditBid(bid: Bid) {
+    if (!tender) return;
+    // Map BidLineItem (with database ids) into ExtractedBidLine (keyed by
+    // order_num) so the modal can use the same UI as for new bids.
+    const orderById = new Map<number, number>();
+    tender.line_items.forEach((li) => orderById.set(li.id, li.order_num));
+    const lines = tender.line_items.map((li) => {
+      const cell = bid.line_items.find(
+        (bl) => bl.tender_line_item_id === li.id,
+      );
+      return {
+        order_num: li.order_num,
+        unit_price_labor: cell?.unit_price_labor ?? null,
+        unit_price_material: cell?.unit_price_material ?? null,
+        unit_price_total: cell?.unit_price_total ?? "0",
+        price_type: (cell?.price_type ?? "fixed") as
+          | "fixed"
+          | "negotiable"
+          | "not_included"
+          | "on_request",
+        raw_text_price: cell?.raw_text_price ?? null,
+      };
+    });
+    setDraft({
+      company_name: bid.company_name,
+      variant_label: bid.variant_label,
+      vat_rate: bid.vat_rate ?? "20",
+      total_without_vat: bid.total_without_vat ?? null,
+      total_with_vat: null,
+      contact_name: bid.contact_name,
+      contact_phone: bid.contact_phone,
+      contact_email: bid.contact_email,
+      included_in_price: bid.included_in_price,
+      not_included_in_price: bid.not_included_in_price,
+      payment_terms: bid.payment_terms,
+      delivery_days: bid.delivery_days,
+      notes: bid.notes,
+      lines,
+    });
+    setEditingBidId(bid.id);
   }
 
   async function saveDraftBid() {
@@ -245,7 +297,22 @@ export default function TenderDetailPage() {
       const idByOrder = new Map<number, number>();
       tender.line_items.forEach((li) => idByOrder.set(li.order_num, li.id));
 
-      await api.tenders.createBid(tender.id, {
+      const line_items = draft.lines
+        .map((bl) => {
+          const lineId = idByOrder.get(bl.order_num);
+          if (!lineId) return null;
+          return {
+            tender_line_item_id: lineId,
+            unit_price_labor: bl.unit_price_labor ?? null,
+            unit_price_material: bl.unit_price_material ?? null,
+            unit_price_total: bl.unit_price_total ?? "0",
+            price_type: bl.price_type ?? "fixed",
+            raw_text_price: bl.raw_text_price ?? null,
+          };
+        })
+        .filter((x): x is NonNullable<typeof x> => x !== null);
+
+      const payload = {
         company_name: draft.company_name.trim(),
         variant_label: draft.variant_label || null,
         vat_rate: draft.vat_rate || "20",
@@ -257,23 +324,18 @@ export default function TenderDetailPage() {
         payment_terms: draft.payment_terms,
         delivery_days: draft.delivery_days,
         notes: draft.notes,
-        line_items: draft.lines
-          .map((bl) => {
-            const lineId = idByOrder.get(bl.order_num);
-            if (!lineId) return null;
-            return {
-              tender_line_item_id: lineId,
-              unit_price_labor: bl.unit_price_labor ?? null,
-              unit_price_material: bl.unit_price_material ?? null,
-              unit_price_total: bl.unit_price_total ?? "0",
-              price_type: bl.price_type ?? "fixed",
-              raw_text_price: bl.raw_text_price ?? null,
-            };
-          })
-          .filter((x): x is NonNullable<typeof x> => x !== null),
-      });
-      toast.success("Bid added");
+        line_items,
+      };
+
+      if (editingBidId != null) {
+        await api.tenders.updateBid(editingBidId, payload);
+        toast.success("Bid updated");
+      } else {
+        await api.tenders.createBid(tender.id, payload);
+        toast.success("Bid added");
+      }
       setDraft(null);
+      setEditingBidId(null);
       setMarketPrices(null); // invalidate market cache trigger
       load();
     } catch (e) {
@@ -425,8 +487,13 @@ export default function TenderDetailPage() {
       (bl) => bl.unit_price_labor !== null || bl.unit_price_material !== null,
     ),
   );
+  // Sade  = 1 column per bidder (unit price)
+  // Detaylı = labor + material + total when any split exists; otherwise
+  //            unit + line total (qty × unit) so the user still sees more
+  //            than a single number per cell.
   const showSplit = viewMode === "detailed" && hasSplit;
-  const colsPerBid = showSplit ? 3 : 1;
+  const showLineTotal = viewMode === "detailed" && !hasSplit;
+  const colsPerBid = showSplit ? 3 : showLineTotal ? 2 : 1;
 
   return (
     <div className="space-y-6">
@@ -561,13 +628,22 @@ export default function TenderDetailPage() {
                         </Badge>
                       ) : null}
                     </div>
-                    <button
-                      onClick={() => handleDeleteBid(b.id)}
-                      className="text-muted-foreground transition hover:text-rose-500"
-                      title="Delete bid"
-                    >
-                      <Trash2 className="h-3 w-3" />
-                    </button>
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => startEditBid(b)}
+                        className="text-muted-foreground transition hover:text-foreground"
+                        title="Edit bid"
+                      >
+                        <Pencil className="h-3 w-3" />
+                      </button>
+                      <button
+                        onClick={() => handleDeleteBid(b.id)}
+                        className="text-muted-foreground transition hover:text-rose-500"
+                        title="Delete bid"
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </button>
+                    </div>
                   </div>
                   <div>
                     <div className="text-xl font-bold">
@@ -642,8 +718,11 @@ export default function TenderDetailPage() {
                 ? "bg-primary text-primary-foreground"
                 : "text-muted-foreground hover:bg-muted")
             }
-            disabled={!hasSplit}
-            title={hasSplit ? "" : "No labor/material split available"}
+            title={
+              hasSplit
+                ? "İşçilik + malzeme + toplam"
+                : "Birim fiyat + satır toplamı (qty × birim)"
+            }
           >
             Detaylı
           </button>
@@ -744,6 +823,26 @@ export default function TenderDetailPage() {
                             className="p-1 text-right font-semibold"
                           >
                             Toplam
+                          </th>
+                        </>
+                      ))}
+                    </tr>
+                  ) : showLineTotal ? (
+                    <tr className="border-b text-[10px] text-muted-foreground">
+                      <th colSpan={4} className="sticky left-0 bg-card"></th>
+                      {tender.bids.map((b) => (
+                        <>
+                          <th
+                            key={`${b.id}-unit`}
+                            className="border-l p-1 text-right"
+                          >
+                            Birim
+                          </th>
+                          <th
+                            key={`${b.id}-row`}
+                            className="p-1 text-right font-semibold"
+                          >
+                            Satır toplamı
                           </th>
                         </>
                       ))}
@@ -882,6 +981,30 @@ export default function TenderDetailPage() {
                               </>
                             );
                           }
+                          if (showLineTotal) {
+                            const qty = parseFloat(li.quantity);
+                            const lineTotal = isFinite(qty) ? qty * total : 0;
+                            return (
+                              <>
+                                <td
+                                  key={`up-${b.id}-${li.id}`}
+                                  className={
+                                    "border-l p-2 text-right text-xs " + tone
+                                  }
+                                >
+                                  {fmtNum(cell.unit_price_total)}
+                                </td>
+                                <td
+                                  key={`lt-${b.id}-${li.id}`}
+                                  className="p-2 text-right text-xs font-medium"
+                                >
+                                  {lineTotal > 0
+                                    ? fmtCurrency(lineTotal, tender.currency)
+                                    : "—"}
+                                </td>
+                              </>
+                            );
+                          }
                           return (
                             <td
                               key={`up-${b.id}-${li.id}`}
@@ -934,6 +1057,22 @@ export default function TenderDetailPage() {
                             >
                               {fmtCurrency(b.total_material, tender.currency)}
                             </td>
+                            <td
+                              key={`tot-amt-${b.id}`}
+                              className={"p-2 text-right text-sm " + tone}
+                            >
+                              {fmtCurrency(b.total_amount, tender.currency)}
+                            </td>
+                          </>
+                        );
+                      }
+                      if (showLineTotal) {
+                        return (
+                          <>
+                            <td
+                              key={`tot-pad-${b.id}`}
+                              className="border-l p-2"
+                            ></td>
                             <td
                               key={`tot-amt-${b.id}`}
                               className={"p-2 text-right text-sm " + tone}
@@ -1034,8 +1173,12 @@ export default function TenderDetailPage() {
         <DraftBidModal
           draft={draft}
           tender={tender}
+          mode={editingBidId != null ? "edit" : "create"}
           onChange={setDraft}
-          onCancel={() => setDraft(null)}
+          onCancel={() => {
+            setDraft(null);
+            setEditingBidId(null);
+          }}
           onSave={saveDraftBid}
           saving={savingBid}
         />
@@ -1162,6 +1305,7 @@ function MarketPriceBox({
 function DraftBidModal({
   draft,
   tender,
+  mode = "create",
   onChange,
   onCancel,
   onSave,
@@ -1169,6 +1313,7 @@ function DraftBidModal({
 }: {
   draft: ExtractedBid;
   tender: Tender;
+  mode?: "create" | "edit";
   onChange: (d: ExtractedBid) => void;
   onCancel: () => void;
   onSave: () => void;
@@ -1230,9 +1375,13 @@ function DraftBidModal({
       <div className="max-h-[90vh] w-full max-w-5xl overflow-y-auto rounded-lg bg-background shadow-xl">
         <div className="sticky top-0 z-10 flex items-center justify-between border-b bg-background p-4">
           <div>
-            <h2 className="text-lg font-semibold">Review bid</h2>
+            <h2 className="text-lg font-semibold">
+              {mode === "edit" ? "Edit bid" : "Review bid"}
+            </h2>
             <p className="text-xs text-muted-foreground">
-              Fix any AI mistakes before saving
+              {mode === "edit"
+                ? "Update any field and press Save bid"
+                : "Fix any AI mistakes before saving"}
             </p>
           </div>
           <Button variant="ghost" size="sm" onClick={onCancel}>
