@@ -24,6 +24,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useProject } from "@/components/providers/project-provider";
+import { useUser } from "@/components/providers/user-provider";
 import { formatRubCompact, formatLabel, formatPercent } from "@/lib/formatters";
 import type { ProjectStatus, ProjectHealth } from "@/types/project";
 import { EACWidget } from "@/components/projects/eac-widget";
@@ -95,6 +96,12 @@ const MODULES = [
 
 export default function ProjectOverviewPage() {
   const { project, isLoading, error } = useProject();
+  const { user } = useUser();
+  // WORKFORCE_EDITOR sadece workforce modülünü görmeli — modules grid'i
+  // diğer modüllere kısayol veriyor, onu da filtreleyelim.
+  const visibleModules = user?.role === "workforce_editor"
+    ? MODULES.filter((m) => m.segment === "workforce")
+    : MODULES;
 
   if (error) {
     return (
@@ -198,7 +205,7 @@ export default function ProjectOverviewPage() {
           Modules
         </h2>
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-          {MODULES.map((m) => {
+          {visibleModules.map((m) => {
             const Icon = m.icon;
             return (
               <Link key={m.segment} href={`/projects/${project.id}/${m.segment}`}>
