@@ -9,7 +9,7 @@ from sqlalchemy import and_, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
-from app.api.deps import CurrentUser, DBSession, require_roles
+from app.api.deps import CurrentUser, DBSession, UserLang, require_roles
 from app.models.project import Project
 from app.models.subcontractor import (
     ContractDocument,
@@ -273,11 +273,28 @@ async def get_subcontractor_kpis(user: CurrentUser, db: DBSession) -> Subcontrac
     total_value = (await db.execute(
         select(func.coalesce(func.sum(SubcontractorContract.contract_amount), 0))
     )).scalar_one()
-    total_paid = (await db.execute(
+    # Paid totals come from BOTH sources: formal hakediş entries
+    # (SubcontractorPayment in PAID status) AND imported ledger entries
+    # tagged as EXPENSE against a subcontractor. The per-subcontractor
+    # detail view already combines these (_compute_paid_for_subcontractor);
+    # this aggregate previously read only SubcontractorPayment, which
+    # caused the dashboard Payment Progress to show 0% even when every
+    # subcontractor card displayed real "Paid" amounts.
+    from app.models.ledger_entry import LedgerEntry, LedgerEntryType
+
+    sp_paid = Decimal((await db.execute(
         select(func.coalesce(func.sum(SubcontractorPayment.amount), 0)).where(
             SubcontractorPayment.status == PaymentStatus.PAID
         )
-    )).scalar_one()
+    )).scalar_one() or 0)
+    ledger_paid = Decimal((await db.execute(
+        select(func.coalesce(func.sum(LedgerEntry.amount), 0)).where(
+            LedgerEntry.entry_type == LedgerEntryType.EXPENSE,
+            LedgerEntry.subcontractor_id.is_not(None),
+        )
+    )).scalar_one() or 0)
+    total_paid = sp_paid + ledger_paid
+
     total_pending = (await db.execute(
         select(func.coalesce(func.sum(SubcontractorPayment.amount), 0)).where(
             SubcontractorPayment.status.in_([PaymentStatus.PENDING, PaymentStatus.APPROVED])
@@ -321,19 +338,56 @@ async def get_subcontractor_kpis(user: CurrentUser, db: DBSession) -> Subcontrac
         ).group_by(SubcontractorPayment.status)
     )).all():
         payments_by_status[st.value] = Decimal(amt or 0)
+    # Fold ledger-side EXPENSE rows into the PAID bucket so the "Payments
+    # by Status" pie chart matches the headline Paid KPI.
+    payments_by_status[PaymentStatus.PAID.value] += ledger_paid
 
-    monthly_rows = (await db.execute(
+    # Monthly payments chart: union of formal SubcontractorPayment.PAID rows
+    # and ledger EXPENSE rows assigned to a subcontractor. We aggregate per
+    # source then merge into a single month-keyed dict before sorting.
+    monthly_by_month: dict[str, dict[str, Decimal | int]] = {}
+    sp_monthly = (await db.execute(
         select(
             func.to_char(func.date_trunc("month", SubcontractorPayment.payment_date), "YYYY-MM").label("month"),
             func.coalesce(func.sum(SubcontractorPayment.amount), 0).label("amount"),
             func.count(SubcontractorPayment.id).label("cnt"),
         )
         .where(SubcontractorPayment.status == PaymentStatus.PAID)
-        .group_by("month").order_by("month")
+        .group_by("month")
     )).all()
+    for month, amount, cnt in sp_monthly:
+        if month is None:
+            continue
+        bucket = monthly_by_month.setdefault(str(month), {"amount": Decimal(0), "count": 0})
+        bucket["amount"] = Decimal(bucket["amount"]) + Decimal(amount or 0)
+        bucket["count"] = int(bucket["count"]) + int(cnt or 0)
+
+    ledger_monthly = (await db.execute(
+        select(
+            func.to_char(func.date_trunc("month", LedgerEntry.entry_date), "YYYY-MM").label("month"),
+            func.coalesce(func.sum(LedgerEntry.amount), 0).label("amount"),
+            func.count(LedgerEntry.id).label("cnt"),
+        )
+        .where(
+            LedgerEntry.entry_type == LedgerEntryType.EXPENSE,
+            LedgerEntry.subcontractor_id.is_not(None),
+        )
+        .group_by("month")
+    )).all()
+    for month, amount, cnt in ledger_monthly:
+        if month is None:
+            continue
+        bucket = monthly_by_month.setdefault(str(month), {"amount": Decimal(0), "count": 0})
+        bucket["amount"] = Decimal(bucket["amount"]) + Decimal(amount or 0)
+        bucket["count"] = int(bucket["count"]) + int(cnt or 0)
+
     monthly = [
-        MonthlyPaymentPoint(month=str(r[0]), amount=Decimal(r[1] or 0), count=int(r[2] or 0))
-        for r in monthly_rows[-6:]
+        MonthlyPaymentPoint(
+            month=m,
+            amount=Decimal(monthly_by_month[m]["amount"]),
+            count=int(monthly_by_month[m]["count"]),
+        )
+        for m in sorted(monthly_by_month.keys())[-6:]
     ]
 
     return SubcontractorKPIs(
@@ -2163,25 +2217,30 @@ async def get_profile_report(
     sub_id: int,
     user: CurrentUser,
     db: DBSession,
+    lang: UserLang,
     force_refresh: bool = Query(False, description="Bypass cache and re-generate"),
 ) -> SubcontractorProfileReport:
     """Build the executive 'business card' for a subcontractor.
 
-    Cached for 1 hour because the LLM call is expensive. The cache is
-    invalidated automatically when a new contract document is uploaded
-    or extracted_data is patched (see contract document endpoints).
+    Cached for 1 hour because the LLM call is expensive. The cache key is
+    suffixed with the UI language so EN and TR variants don't shadow each
+    other and Claude isn't re-asked when the same language is requested
+    twice in a row. The cache is invalidated automatically when a new
+    contract document is uploaded or extracted_data is patched.
     """
     from app.services import insights_cache
     from app.services.subcontractor_profile import build_profile_report
 
-    cache_key = sub_id + 1_000_000  # disjoint from ai-insights cache namespace
+    # disjoint from ai-insights cache namespace; multiply by 10 + lang flag
+    # so EN and TR live in separate slots
+    cache_key = (sub_id + 1_000_000) * 10 + (1 if lang == "TR" else 0)
 
     if not force_refresh:
         cached = insights_cache.get(cache_key)
         if cached is not None:
             return cached  # type: ignore[return-value]
 
-    report = await build_profile_report(db, sub_id)
+    report = await build_profile_report(db, sub_id, lang=lang)
     if report is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Subcontractor not found")
 

@@ -14,7 +14,7 @@ from decimal import Decimal
 from fastapi import APIRouter, Query
 from sqlalchemy import func, select
 
-from app.api.deps import CurrentUser, DBSession
+from app.api.deps import CurrentUser, DBSession, UserLang
 from app.models.expense import Expense, ExpenseStatus
 from app.models.project import Project, ProjectHealth, ProjectStatus
 from app.schemas.dashboard import DailyBriefing, DashboardStats, KPIMetric
@@ -139,28 +139,34 @@ async def get_dashboard_stats(
 async def get_daily_briefing(
     user: CurrentUser,
     db: DBSession,
+    lang: UserLang,
     force_refresh: bool = Query(
         False, description="Bypass cache and re-generate"
     ),
 ) -> DailyBriefing:
     """Return today's executive briefing.
 
-    Cached via ``insights_cache`` (10-minute TTL). The Claude call is the
-    expensive part; the rule-based fallback is sub-second so the cache is
-    mostly there to avoid hammering the LLM provider. Pass
-    ``force_refresh=true`` to bypass it.
+    Cached via ``insights_cache`` (10-minute TTL, keyed per UI language so
+    Claude doesn't have to regenerate when only one language is requested
+    in a window). The Claude call is the expensive part; the rule-based
+    fallback is sub-second so the cache is mostly there to avoid hammering
+    the LLM provider. Pass ``force_refresh=true`` to bypass it.
     """
     from app.services import insights_cache
     from app.services.daily_briefing import build_daily_briefing
 
+    # Suffix the cache key with lang so EN and TR briefings live in
+    # separate slots and don't shadow each other.
+    cache_key = _BRIEFING_CACHE_KEY * 1000 + (1 if lang == "TR" else 0)
+
     if not force_refresh:
-        cached = insights_cache.get(_BRIEFING_CACHE_KEY)
+        cached = insights_cache.get(cache_key)
         if cached is not None:
             return cached  # type: ignore[return-value]
 
-    payload = await build_daily_briefing(db)
+    payload = await build_daily_briefing(db, lang=lang)
     briefing = DailyBriefing(**payload)
-    insights_cache.set(_BRIEFING_CACHE_KEY, briefing)  # type: ignore[arg-type]
+    insights_cache.set(cache_key, briefing)  # type: ignore[arg-type]
     return briefing
 
 

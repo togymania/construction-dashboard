@@ -45,6 +45,8 @@ from app.schemas.subcontractor import (
 async def build_profile_report(
     db: AsyncSession,
     subcontractor_id: int,
+    *,
+    lang: str = "EN",
 ) -> SubcontractorProfileReport | None:
     """Build the consolidated profile report for a subcontractor.
 
@@ -196,7 +198,7 @@ async def build_profile_report(
     }
 
     if api_key:
-        sections, recommendations, source = _llm_narrative(facts, api_key)
+        sections, recommendations, source = _llm_narrative(facts, api_key, lang=lang)
     else:
         sections, recommendations, source = _rule_narrative(facts)
 
@@ -368,13 +370,15 @@ def _rule_narrative(facts: dict[str, Any]) -> tuple[
 def _llm_narrative(
     facts: dict[str, Any],
     api_key: str,
+    *,
+    lang: str = "EN",
 ) -> tuple[dict[str, ProfileSection], list[str], str]:
     """Ask Claude for the four narrative sections + recommendations."""
     try:
         import anthropic  # type: ignore
 
         client = anthropic.Anthropic(api_key=api_key, timeout=settings.LLM_TIMEOUT_SECONDS)
-        prompt = _build_profile_prompt(facts)
+        prompt = _build_profile_prompt(facts, lang=lang)
         msg = client.messages.create(
             model=settings.ANTHROPIC_MODEL,
             max_tokens=1500,
@@ -417,13 +421,16 @@ def _llm_narrative(
         return sections, recs, "rule"
 
 
-def _build_profile_prompt(facts: dict[str, Any]) -> str:
+def _build_profile_prompt(facts: dict[str, Any], lang: str = "EN") -> str:
     """Render the prompt sent to Claude for the profile report."""
+    lang_name = "Turkish" if (lang or "EN").upper() == "TR" else "English"
     return (
         "You are an executive assistant in a large-scale construction company. "
         "Given structured facts about a subcontractor, produce a SHORT, factual "
-        "executive summary in JSON. No marketing language. Each section must be "
-        "1–3 sentences in English (or Turkish if the source data is Turkish).\n\n"
+        f"executive summary in JSON. Write ALL text in {lang_name}, regardless "
+        "of the language of the source data. Proper nouns (company names, "
+        "people) may stay in their original script. No marketing language. "
+        "Each section must be 1–3 sentences.\n\n"
         "Facts:\n"
         f"```json\n{json.dumps(facts, ensure_ascii=False, indent=2)}\n```\n\n"
         "Return ONLY a JSON object with this exact shape, no prose around it:\n"

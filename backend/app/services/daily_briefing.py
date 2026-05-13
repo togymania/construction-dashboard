@@ -36,7 +36,10 @@ from app.models.workforce import WorkforceSnapshot
 # =============================================================================
 
 
-async def build_daily_briefing(db: AsyncSession) -> dict[str, Any]:
+async def build_daily_briefing(
+    db: AsyncSession,
+    lang: str = "EN",
+) -> dict[str, Any]:
     """Compute the dashboard daily briefing payload.
 
     Returns a dict shaped like:
@@ -54,7 +57,7 @@ async def build_daily_briefing(db: AsyncSession) -> dict[str, Any]:
     api_key = (settings.ANTHROPIC_API_KEY or "").strip()
 
     if api_key:
-        narrative = _llm_briefing(facts, api_key)
+        narrative = _llm_briefing(facts, api_key, lang=lang)
     else:
         narrative = _rule_briefing(facts)
 
@@ -309,17 +312,26 @@ def _rule_briefing(facts: dict[str, Any]) -> dict[str, Any]:
 # =============================================================================
 
 
-def _llm_briefing(facts: dict[str, Any], api_key: str) -> dict[str, Any]:
+def _llm_briefing(
+    facts: dict[str, Any],
+    api_key: str,
+    *,
+    lang: str = "EN",
+) -> dict[str, Any]:
     """Send the facts to Claude and parse a structured briefing JSON."""
     try:
         import anthropic  # type: ignore
 
         client = anthropic.Anthropic(api_key=api_key, timeout=settings.LLM_TIMEOUT_SECONDS)
+        # Hard language directive so Claude doesn't auto-detect from data and
+        # leak Russian/Cyrillic into an English UI (or vice versa).
+        lang_name = "Turkish" if lang.upper() == "TR" else "English"
         prompt = (
             "You are an executive assistant for a large-scale construction company. "
             "Given last-24h portfolio facts, produce a concise daily briefing in JSON. "
-            "Tone: factual, no marketing. Match the source language of the team "
-            "(Turkish if the data feels Turkish/Russian, otherwise English).\n\n"
+            f"Write ALL output text in {lang_name}, regardless of the language of "
+            "the underlying data. Proper nouns (company names, people, projects) "
+            "may stay in their original script. Tone: factual, no marketing.\n\n"
             "Facts:\n"
             f"```json\n{json.dumps(facts, ensure_ascii=False, indent=2)}\n```\n\n"
             "Return ONLY a JSON object, no prose:\n"

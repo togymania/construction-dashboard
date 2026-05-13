@@ -22,6 +22,21 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * Read the user's UI language preference from localStorage. Stays in sync
+ * with the LanguageProvider (which uses the same key). Default "EN" so the
+ * backend never receives an empty Accept-Language and falls back to its
+ * own auto-detect heuristic.
+ */
+function readUiLang(): string {
+  if (typeof window === "undefined") return "EN";
+  try {
+    return localStorage.getItem("ui-lang-preference") || "EN";
+  } catch {
+    return "EN";
+  }
+}
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const url = path.startsWith("http") ? path : API_V1 + path;
   const token = typeof window !== "undefined" ? getToken() : null;
@@ -30,6 +45,9 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 
   const headers: Record<string, string> = {
     ...(isFormData ? {} : { "Content-Type": "application/json" }),
+    // Tell the backend which language Claude should reply in for any
+    // AI-generated text (briefings, insights, executive reports).
+    "X-User-Lang": readUiLang(),
     ...(options?.headers as Record<string, string>),
   };
 

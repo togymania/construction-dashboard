@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
-from app.api.deps import CurrentUser, DBSession, require_roles
+from app.api.deps import CurrentUser, DBSession, UserLang, require_roles
 from app.models.project import Project
 from app.models.user import User, UserRole
 from app.schemas.project import (
@@ -191,23 +191,28 @@ async def get_executive_report(
     project_id: int,
     user: CurrentUser,
     db: DBSession,
+    lang: UserLang,
     force_refresh: bool = Query(False, description="Bypass cache and re-generate"),
 ) -> ProjectExecutiveReport:
     """Build the executive digest for a project.
 
-    Cached via ``insights_cache`` (10-min TTL). The Claude path is the
+    Cached via ``insights_cache`` (10-min TTL, keyed per UI language so EN
+    and TR variants don't shadow each other). The Claude path is the
     expensive one; rule-based fallback is sub-second.
     """
     from app.services import insights_cache
     from app.services.project_executive_report import build_executive_report
 
-    cache_key = project_id + _EXEC_REPORT_KEY_OFFSET
+    # Multiply by 10 then add lang flag so EN/TR have separate cache slots.
+    cache_key = (project_id + _EXEC_REPORT_KEY_OFFSET) * 10 + (
+        1 if lang == "TR" else 0
+    )
     if not force_refresh:
         cached = insights_cache.get(cache_key)
         if cached is not None:
             return cached  # type: ignore[return-value]
 
-    payload = await build_executive_report(db, project_id)
+    payload = await build_executive_report(db, project_id, lang=lang)
     if payload is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")
 

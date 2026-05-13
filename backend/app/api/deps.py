@@ -1,7 +1,7 @@
 ﻿"""Shared FastAPI dependencies (auth, db, permissions)."""
-from typing import Annotated
+from typing import Annotated, Literal
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, Header, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,6 +15,30 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/token")
 
 DBSession = Annotated[AsyncSession, Depends(get_db)]
 Token = Annotated[str, Depends(oauth2_scheme)]
+
+
+# ---------------------------------------------------------------------------
+# UI language for AI-generated text
+# ---------------------------------------------------------------------------
+# The frontend sends X-User-Lang ("EN" | "TR") on every request reflecting
+# the user's localStorage UI preference. AI prompts read this and instruct
+# Claude to respond in that language regardless of the source data's
+# language. Without this, Claude defaults to mirroring the data language
+# (often Russian for ledger imports), which leaks Cyrillic into an English
+# UI and vice versa.
+UiLang = Literal["EN", "TR"]
+
+
+async def get_ui_lang(
+    x_user_lang: str | None = Header(default=None, alias="X-User-Lang"),
+) -> UiLang:
+    raw = (x_user_lang or "").strip().upper()
+    if raw == "TR":
+        return "TR"
+    return "EN"
+
+
+UserLang = Annotated[UiLang, Depends(get_ui_lang)]
 
 
 async def get_current_user(db: DBSession, token: Token) -> User:

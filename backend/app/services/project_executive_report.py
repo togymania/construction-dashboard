@@ -36,6 +36,8 @@ from app.services.budget_variance import build_variance_report
 async def build_executive_report(
     db: AsyncSession,
     project_id: int,
+    *,
+    lang: str = "EN",
 ) -> dict[str, Any] | None:
     """Build the executive report payload for a single project.
 
@@ -50,7 +52,7 @@ async def build_executive_report(
     api_key = (settings.ANTHROPIC_API_KEY or "").strip()
 
     if api_key:
-        narrative = _llm_report(facts, api_key)
+        narrative = _llm_report(facts, api_key, lang=lang)
     else:
         narrative = _rule_report(facts)
 
@@ -404,18 +406,25 @@ def _format_outlook(proj: dict, budget: dict, subs: dict) -> str:
 # =============================================================================
 
 
-def _llm_report(facts: dict[str, Any], api_key: str) -> dict[str, Any]:
+def _llm_report(
+    facts: dict[str, Any],
+    api_key: str,
+    *,
+    lang: str = "EN",
+) -> dict[str, Any]:
     """Send the facts to Claude and parse a structured executive report."""
     try:
         import anthropic  # type: ignore
 
         client = anthropic.Anthropic(api_key=api_key, timeout=settings.LLM_TIMEOUT_SECONDS)
+        lang_name = "Turkish" if (lang or "EN").upper() == "TR" else "English"
         prompt = (
             "You are an executive assistant for a large-scale construction company. "
             "Given the project facts below, produce a 1-2 page executive report in JSON. "
-            "Tone: factual, decisive, NO marketing language. Match the team's "
-            "language (Turkish if data feels Turkish/Russian, otherwise English). "
-            "Each section is 1-3 sentences.\n\n"
+            f"Write ALL text in {lang_name}, regardless of the language of the "
+            "source data. Proper nouns (company names, people, projects) may stay "
+            "in their original script. Tone: factual, decisive, NO marketing "
+            "language. Each section is 1-3 sentences.\n\n"
             "Facts:\n"
             f"```json\n{json.dumps(facts, ensure_ascii=False, indent=2)}\n```\n\n"
             "Return ONLY a JSON object with this exact shape, no prose around it:\n"
