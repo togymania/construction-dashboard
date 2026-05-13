@@ -143,7 +143,7 @@ export function Sidebar({ className }: { className?: string }) {
               width={144}
               height={48}
               priority
-              className="h-12 w-auto max-w-none mix-blend-multiply dark:mix-blend-screen"
+              className="h-12 w-auto max-w-none"
               style={{ objectFit: "contain", objectPosition: "left center" }}
             />
           </button>
@@ -156,7 +156,7 @@ export function Sidebar({ className }: { className?: string }) {
                 width={240}
                 height={64}
                 priority
-                className="h-14 w-auto mix-blend-multiply dark:mix-blend-screen"
+                className="h-14 w-auto"
               />
             </Link>
             <button

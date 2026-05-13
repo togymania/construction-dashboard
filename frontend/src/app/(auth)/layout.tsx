@@ -15,7 +15,7 @@ export default function AuthLayout({
           width={280}
           height={64}
           priority
-          className="h-12 w-auto mix-blend-multiply dark:mix-blend-screen"
+          className="h-12 w-auto"
         />
       </Link>
       <div className="w-full max-w-md">{children}</div>
