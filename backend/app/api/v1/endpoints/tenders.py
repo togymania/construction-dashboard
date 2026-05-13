@@ -273,6 +273,7 @@ async def update_tender(
 
 @router.delete(
     "/tenders/{tender_id}",
+    response_model=None,
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Delete a tender (cascades to line items and bids)",
 )
@@ -366,6 +367,7 @@ async def update_line_item(
 
 @router.delete(
     "/tender-line-items/{line_id}",
+    response_model=None,
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Drop a tender line item (cascades to all bids' price rows)",
 )
@@ -516,6 +518,7 @@ async def update_bid(
 
 @router.delete(
     "/bids/{bid_id}",
+    response_model=None,
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Drop a bid (cascades to line prices)",
 )
