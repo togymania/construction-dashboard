@@ -259,6 +259,23 @@ class WorkforceDisciplineTodaySummary(BaseModel):
     total_direct: int
 
 
+class WorkforceCumulativeHours(BaseModel):
+    """Cumulative man-hours by discipline since the start of the project.
+
+    Each present headcount on a given snapshot day is multiplied by the
+    daily working hours (default 10) and summed across all snapshots
+    that exist for the project. Only DIRECT positions are counted, so
+    "Civil 1309 × 10 saat = 13 090 man-hours" is the daily contribution.
+    """
+
+    hours_per_day: int = 10
+    total_days: int = 0  # how many distinct snapshot dates fed the sum
+    civil: int = 0
+    electrical: int = 0
+    mechanical: int = 0
+    total: int = 0  # sum of the three above
+
+
 # ---------- AI Insights ----------
 
 class WorkforceInsight(BaseModel):
@@ -290,6 +307,7 @@ class WorkforceKPIBundle(BaseModel):
     top_positions: list[WorkforceKPITopPosition] = Field(default_factory=list)  # top 8 today
     discipline_today: WorkforceDisciplineTodaySummary | None = None
     discipline_trend: list[WorkforceDisciplinePoint] = Field(default_factory=list)
+    cumulative_hours: WorkforceCumulativeHours | None = None
     insights: WorkforceInsightsBundle | None = None
 
 

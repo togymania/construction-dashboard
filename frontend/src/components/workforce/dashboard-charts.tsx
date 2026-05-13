@@ -28,6 +28,7 @@ import type {
   WorkforceKPIWeeklyBucket,
   WorkforceDisciplinePoint,
   WorkforceDisciplineTodaySummary,
+  WorkforceCumulativeHours,
   WorkforceCategory,
 } from "@/types/workforce";
 
@@ -82,7 +83,106 @@ export function WorkforceDashboardCharts({ kpis }: Props) {
         />
       </div>
 
+      {/* Row 3: Cumulative man-hours by discipline */}
+      {kpis.cumulative_hours ? (
+        <CumulativeHoursCard data={kpis.cumulative_hours} today={kpis.discipline_today} />
+      ) : null}
     </div>
+  );
+}
+
+// =============================================================================
+// Cumulative Man-Hours by Discipline
+// =============================================================================
+
+function CumulativeHoursCard({
+  data,
+  today,
+}: {
+  data: WorkforceCumulativeHours;
+  today: WorkforceDisciplineTodaySummary | null;
+}) {
+  const fmt = (n: number) => n.toLocaleString("tr-TR");
+  const items = [
+    {
+      label: "Civil",
+      hours: data.civil,
+      today_count: today?.civil ?? 0,
+      bg: "from-emerald-500 to-emerald-600",
+      ring: "ring-emerald-200 dark:ring-emerald-900",
+      text: "text-emerald-700 dark:text-emerald-300",
+    },
+    {
+      label: "Electrical",
+      hours: data.electrical,
+      today_count: today?.electrical ?? 0,
+      bg: "from-blue-500 to-indigo-600",
+      ring: "ring-blue-200 dark:ring-blue-900",
+      text: "text-blue-700 dark:text-blue-300",
+    },
+    {
+      label: "Mechanical",
+      hours: data.mechanical,
+      today_count: today?.mechanical ?? 0,
+      bg: "from-rose-500 to-pink-600",
+      ring: "ring-rose-200 dark:ring-rose-900",
+      text: "text-rose-700 dark:text-rose-300",
+    },
+  ];
+  return (
+    <Card className="border-foreground/5 bg-card/60 backdrop-blur-sm">
+      <CardHeader className="pb-3">
+        <div className="flex items-baseline justify-between gap-4 flex-wrap">
+          <div>
+            <CardTitle className="text-base font-medium">
+              Kümülatif Adam-Saat (Disiplin Bazlı)
+            </CardTitle>
+            <p className="text-[11px] text-muted-foreground mt-1">
+              Direkt işgücü · {data.hours_per_day} saat/gün ·{" "}
+              {data.total_days} gün veri
+            </p>
+          </div>
+          <div className="text-right">
+            <div className="text-2xl font-bold tabular-nums">{fmt(data.total)}</div>
+            <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
+              Toplam saat
+            </div>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          {items.map((it) => {
+            const today_hours = it.today_count * data.hours_per_day;
+            const share =
+              data.total > 0 ? Math.round((it.hours / data.total) * 100) : 0;
+            return (
+              <div
+                key={it.label}
+                className={`relative overflow-hidden rounded-lg ring-1 ${it.ring} bg-card p-4`}
+              >
+                <div
+                  className={`absolute inset-x-0 top-0 h-1 bg-gradient-to-r ${it.bg}`}
+                />
+                <div className={`text-[11px] font-semibold uppercase tracking-wide ${it.text}`}>
+                  {it.label}
+                </div>
+                <div className="mt-2 text-3xl font-bold tabular-nums">
+                  {fmt(it.hours)}
+                </div>
+                <div className="text-[10px] text-muted-foreground">
+                  saat · %{share} payı
+                </div>
+                <div className="mt-3 pt-3 border-t border-foreground/5 text-[11px] text-muted-foreground">
+                  Bugün: <span className="font-medium text-foreground">{fmt(it.today_count)}</span>{" "}
+                  kişi · <span className="font-medium text-foreground">{fmt(today_hours)}</span> saat
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 

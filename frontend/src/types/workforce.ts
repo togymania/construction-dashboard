@@ -154,6 +154,15 @@ export interface WorkforceDisciplineTodaySummary {
   total_direct: number;
 }
 
+export interface WorkforceCumulativeHours {
+  hours_per_day: number;
+  total_days: number;
+  civil: number;
+  electrical: number;
+  mechanical: number;
+  total: number;
+}
+
 // ---------- AI Insights ----------
 export interface WorkforceInsight {
   icon: string;
@@ -178,6 +187,7 @@ export interface WorkforceKPIBundle {
   top_positions: WorkforceKPITopPosition[];
   discipline_today: WorkforceDisciplineTodaySummary | null;
   discipline_trend: WorkforceDisciplinePoint[];
+  cumulative_hours: WorkforceCumulativeHours | null;
   insights: WorkforceInsightsBundle | null;
 }
 

@@ -34,6 +34,7 @@ from app.schemas.workforce import (
     WorkforceKPIDailyPoint,
     WorkforceKPITopPosition,
     WorkforceKPIWeeklyBucket,
+    WorkforceCumulativeHours,
     WorkforceDisciplinePoint,
     WorkforceDisciplineTodaySummary,
     WorkforceInsight,
@@ -749,6 +750,42 @@ async def workforce_kpis(project_id: int, db: DBSession, _user: CurrentUser):
                 civil=day_disc["civil"],
             ))
 
+    # ------------------------------------------------------------------
+    # Cumulative man-hours per discipline (full project life-to-date)
+    # 1 işçi × 10 saat/gün — DIRECT pozisyonlardan disiplin bazlı toplanır.
+    # Sadece projenin tüm snapshot tarihlerini gezer, son N gün değil.
+    # ------------------------------------------------------------------
+    HOURS_PER_DAY = 10
+    cumulative_hours: WorkforceCumulativeHours | None = None
+    try:
+        cum_stmt = (
+            select(WorkforceSnapshot)
+            .where(WorkforceSnapshot.project_id == project_id)
+            .options(selectinload(WorkforceSnapshot.counts).selectinload(WorkforceCount.position))
+        )
+        cum_snaps = (await db.execute(cum_stmt)).scalars().all()
+        cum = {"civil": 0, "electrical": 0, "mechanical": 0}
+        distinct_dates: set[date] = set()
+        for snap in cum_snaps:
+            distinct_dates.add(snap.snapshot_date)
+            for c in snap.counts:
+                p = c.position
+                if p.category != WorkforceCategory.DIRECT:
+                    continue
+                disc = classify_discipline(p.name)
+                if disc in cum:
+                    cum[disc] += c.present
+        cumulative_hours = WorkforceCumulativeHours(
+            hours_per_day=HOURS_PER_DAY,
+            total_days=len(distinct_dates),
+            civil=cum["civil"] * HOURS_PER_DAY,
+            electrical=cum["electrical"] * HOURS_PER_DAY,
+            mechanical=cum["mechanical"] * HOURS_PER_DAY,
+            total=(cum["civil"] + cum["electrical"] + cum["mechanical"]) * HOURS_PER_DAY,
+        )
+    except Exception:  # noqa: BLE001 — kümülatif KPI başarısız olsa bile ana KPI'ları döndür
+        cumulative_hours = None
+
     # Generate AI insights
     insights = _generate_insights(
         today_direct=today_direct,
@@ -773,6 +810,7 @@ async def workforce_kpis(project_id: int, db: DBSession, _user: CurrentUser):
         top_positions=top_positions,
         discipline_today=discipline_today_summary,
         discipline_trend=discipline_trend,
+        cumulative_hours=cumulative_hours,
         insights=insights,
     )
 
