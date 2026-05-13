@@ -43,7 +43,11 @@ export default function WorkforcePage() {
   const { t } = useT();
   const { project } = useProject();
   const ACTIVE_PROJECT_ID = project?.id ?? 0;
-  const canUpload = user && (user.role === "admin" || user.role === "project_manager");
+  const canUpload =
+    !!user &&
+    (user.role === "admin" ||
+      user.role === "project_manager" ||
+      user.role === "workforce_editor");
 
   const [kpis, setKpis] = useState<WorkforceKPIBundle | null>(null);
   const [recent, setRecent] = useState<WorkforceSnapshotListItem[] | null>(null);
