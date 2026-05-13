@@ -82,11 +82,6 @@ export function WorkforceDashboardCharts({ kpis }: Props) {
         />
       </div>
 
-      {/* Row 3: Top Positions + Category Bar */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <TopPositionsChart positions={kpis.top_positions} />
-        <TodayByCategoryChart bundle={kpis} />
-      </div>
     </div>
   );
 }
