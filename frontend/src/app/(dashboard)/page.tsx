@@ -6,7 +6,6 @@ import {
   Wallet,
   TrendingUp,
   AlertTriangle,
-  Clock,
   CheckCircle2,
   Circle,
   Loader2,
@@ -33,14 +32,6 @@ const kpiIcons = {
   on_track: TrendingUp,
   open_risks: AlertTriangle,
 } as const;
-
-const recentActivity = [
-  { id: 1, text: "Kanal Istanbul Etap 2 - milestone approved", time: "2h ago" },
-  { id: 2, text: "Istanbul Havalimani Terminal B - RFI submitted", time: "4h ago" },
-  { id: 3, text: "Ankara-Izmir YHT - budget variance flagged", time: "6h ago" },
-  { id: 4, text: "Marmaray Extension - drawing revision C published", time: "1d ago" },
-  { id: 5, text: "Galataport Phase 2 - weekly report submitted", time: "1d ago" },
-];
 
 function KPICard({ metric, iconKey }: { metric: KPIMetric; iconKey: keyof typeof kpiIcons }) {
   const Icon = kpiIcons[iconKey];
@@ -144,63 +135,43 @@ export default function DashboardPage() {
           budget code / subcontractor link */}
       <DataQualityCard />
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle>Recent Activity</CardTitle>
-            <CardDescription>Latest updates across your projects</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {recentActivity.map((item) => (
-              <div key={item.id} className="flex items-start gap-3 text-sm">
-                <Clock className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
+      <Card>
+        <CardHeader>
+          <CardTitle>Active Projects</CardTitle>
+          <CardDescription>Live from backend API</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {isLoading ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            </div>
+          ) : upcomingMilestones.length === 0 ? (
+            <p className="text-sm text-muted-foreground py-4">No active projects yet.</p>
+          ) : (
+            upcomingMilestones.map((p) => (
+              <div key={p.id} className="flex items-start gap-3 text-sm">
+                {p.health === "on_track" ? (
+                  <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-500 mt-0.5 shrink-0" />
+                ) : (
+                  <Circle className="h-4 w-4 text-amber-600 dark:text-amber-500 mt-0.5 shrink-0" />
+                )}
                 <div className="flex-1 min-w-0">
-                  <p className="text-foreground">{item.text}</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">{item.time}</p>
+                  <p className="text-foreground font-medium truncate">{p.name}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    {p.location} - {Number(p.progress_pct).toFixed(1)}% complete
+                  </p>
                 </div>
+                <Badge
+                  variant={p.health === "on_track" ? "secondary" : "outline"}
+                  className="text-xs"
+                >
+                  {p.health === "on_track" ? "On track" : "At risk"}
+                </Badge>
               </div>
-            ))}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Active Projects</CardTitle>
-            <CardDescription>Live from backend API</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {isLoading ? (
-              <div className="flex items-center justify-center py-8">
-                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-              </div>
-            ) : upcomingMilestones.length === 0 ? (
-              <p className="text-sm text-muted-foreground py-4">No active projects yet.</p>
-            ) : (
-              upcomingMilestones.map((p) => (
-                <div key={p.id} className="flex items-start gap-3 text-sm">
-                  {p.health === "on_track" ? (
-                    <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-500 mt-0.5 shrink-0" />
-                  ) : (
-                    <Circle className="h-4 w-4 text-amber-600 dark:text-amber-500 mt-0.5 shrink-0" />
-                  )}
-                  <div className="flex-1 min-w-0">
-                    <p className="text-foreground font-medium truncate">{p.name}</p>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      {p.location} - {Number(p.progress_pct).toFixed(1)}% complete
-                    </p>
-                  </div>
-                  <Badge
-                    variant={p.health === "on_track" ? "secondary" : "outline"}
-                    className="text-xs"
-                  >
-                    {p.health === "on_track" ? "On track" : "At risk"}
-                  </Badge>
-                </div>
-              ))
-            )}
-          </CardContent>
-        </Card>
-      </div>
+            ))
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }
