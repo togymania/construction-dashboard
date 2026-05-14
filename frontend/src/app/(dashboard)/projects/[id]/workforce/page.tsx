@@ -64,7 +64,7 @@ export default function WorkforcePage() {
       setKpis(kpiRes);
       setRecent(listRes);
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Failed to load workforce data");
+      setError(e instanceof ApiError ? e.message : t("workforce.uploadError"));
     }
   }
 
@@ -155,10 +155,9 @@ export default function WorkforcePage() {
               <Users className="h-7 w-7 text-primary" />
             </div>
             <div>
-              <h2 className="text-xl font-heading font-semibold">No workforce data yet</h2>
+              <h2 className="text-xl font-heading font-semibold">{t("workforce.noDataYet")}</h2>
               <p className="text-sm text-muted-foreground mt-1 max-w-md">
-                Upload a daily puantaj Excel file (cover-page format) to see KPIs,
-                trends, discipline breakdowns, and AI insights here.
+                {t("workforce.noDataHint")}
               </p>
             </div>
             {canUpload && (
@@ -178,9 +177,9 @@ export default function WorkforcePage() {
           {kpis.as_of_date && (
             <p className="text-xs text-muted-foreground -mt-2 flex items-center gap-1.5">
               <Calendar className="h-3.5 w-3.5" />
-              Data as of {kpis.as_of_date}
+              {t("workforce.asOf")} {kpis.as_of_date}
               {" · "}
-              {kpis.snapshot_count} {kpis.snapshot_count === 1 ? "snapshot" : "snapshots"} on file
+              {kpis.snapshot_count} {kpis.snapshot_count === 1 ? t("workforce.snapshotOnFile") : t("workforce.snapshotsOnFile")}
             </p>
           )}
 
@@ -188,7 +187,7 @@ export default function WorkforcePage() {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             {/* Total Workforce */}
             <HeroKpiCard
-              label="Total Workforce"
+              label={t("workforce.totalWorkforce")}
               value={totalWorkforce}
               icon={<UsersRound className="h-4 w-4" />}
               tint="oklch(0.65 0.20 270)"
@@ -197,40 +196,52 @@ export default function WorkforcePage() {
                   ? kpis.by_category_today.reduce((s, c) => s + c.delta_vs_yesterday, 0)
                   : null
               }
-              description="All personnel on site today"
+              description={t("workforce.allOnSite")}
+              tNoChange={t("workforce.noChange")}
+              tVsPrev={t("workforce.vsPrev")}
+              tAvgHeadcount={t("workforce.avgHeadcount")}
             />
 
             {/* Direct Workforce */}
             <HeroKpiCard
-              label="Direct Workforce"
+              label={t("workforce.directWorkforce")}
               value={directToday?.present_today ?? 0}
               icon={<HardHat className="h-4 w-4" />}
               tint="oklch(0.62 0.20 270)"
               delta={directToday?.delta_vs_yesterday ?? null}
               deltaPct={directToday?.delta_pct ?? null}
-              description={`${directToday?.position_count ?? 0} positions`}
+              description={`${directToday?.position_count ?? 0} ${t("workforce.positions")}`}
+              tNoChange={t("workforce.noChange")}
+              tVsPrev={t("workforce.vsPrev")}
+              tAvgHeadcount={t("workforce.avgHeadcount")}
             />
 
             {/* Subcontractor Workforce */}
             <HeroKpiCard
-              label="Subcontractor"
+              label={t("workforce.subcontractorTitle")}
               value={subcontractorToday?.present_today ?? 0}
               icon={<Activity className="h-4 w-4" />}
               tint="oklch(0.68 0.18 155)"
               delta={subcontractorToday?.delta_vs_yesterday ?? null}
               deltaPct={subcontractorToday?.delta_pct ?? null}
-              description={`${subcontractorToday?.position_count ?? 0} positions`}
+              description={`${subcontractorToday?.position_count ?? 0} ${t("workforce.positions")}`}
+              tNoChange={t("workforce.noChange")}
+              tVsPrev={t("workforce.vsPrev")}
+              tAvgHeadcount={t("workforce.avgHeadcount")}
             />
 
             {/* Weekly Change % */}
             <HeroKpiCard
-              label="Weekly Change"
+              label={t("workforce.weeklyChange")}
               value={weeklyChangePct !== null ? `${weeklyChangePct > 0 ? "+" : ""}${weeklyChangePct.toFixed(1)}%` : "—"}
               icon={<Percent className="h-4 w-4" />}
               tint="oklch(0.75 0.18 65)"
               delta={weeklyChangeAbs}
-              description="This week vs last week avg"
+              description={t("workforce.weekVsWeek")}
               isPercentage
+              tNoChange={t("workforce.noChange")}
+              tVsPrev={t("workforce.vsPrev")}
+              tAvgHeadcount={t("workforce.avgHeadcount")}
             />
           </div>
 
@@ -240,7 +251,7 @@ export default function WorkforcePage() {
               <CardHeader className="pb-3">
                 <CardTitle className="text-base font-medium flex items-center gap-2">
                   <Building2 className="h-4 w-4 text-muted-foreground" />
-                  Today by Company
+                  {t("workforce.todayByCompany")}
                 </CardTitle>
               </CardHeader>
               <CardContent>
@@ -296,6 +307,9 @@ function HeroKpiCard({
   deltaPct,
   description,
   isPercentage,
+  tNoChange,
+  tVsPrev,
+  tAvgHeadcount,
 }: {
   label: string;
   value: number | string;
@@ -305,6 +319,9 @@ function HeroKpiCard({
   deltaPct?: number | null;
   description?: string;
   isPercentage?: boolean;
+  tNoChange?: string;
+  tVsPrev?: string;
+  tAvgHeadcount?: string;
 }) {
   const hasDelta = delta !== null && delta !== undefined;
   const isUp = hasDelta && delta > 0;
@@ -353,11 +370,11 @@ function HeroKpiCard({
                 <Minus className="h-3.5 w-3.5" />
               )}
               {delta === 0
-                ? "no change"
+                ? (tNoChange ?? "no change")
                 : (delta > 0 ? "+" : "") +
                   delta +
                   (deltaPct != null ? ` (${deltaPct.toFixed(1)}%)` : "")}
-              <span className="text-muted-foreground ml-1">vs prev</span>
+              <span className="text-muted-foreground ml-1">{tVsPrev ?? "vs prev"}</span>
             </span>
           )}
           {hasDelta && isPercentage && (
@@ -374,7 +391,7 @@ function HeroKpiCard({
               ) : (
                 <Minus className="h-3.5 w-3.5" />
               )}
-              {(delta > 0 ? "+" : "") + delta} avg headcount
+              {(delta > 0 ? "+" : "") + delta} {tAvgHeadcount ?? "avg headcount"}
             </span>
           )}
         </div>
@@ -394,7 +411,19 @@ const COMPANY_TINT: Record<string, string> = {
   Monart: "oklch(0.68 0.18 155)",        // emerald
 };
 
+// Backend company_label → display string. "Monart" → "Monart Stroy",
+// "Monotekstroy" → "Monotek Stroy". Tutarlı görsel branding için.
+function displayCompany(label: string | null | undefined): string {
+  if (!label) return "";
+  const norm = label.trim();
+  if (norm === "Monart") return "Monart Stroy";
+  if (norm.toLowerCase() === "monotekstroy") return "Monotek Stroy";
+  if (norm === "Monotek") return "Monotek Stroy";
+  return norm;
+}
+
 function CompanyBreakdownCard({ company }: { company: WorkforceKPICompanyToday }) {
+  const { t } = useT();
   const tint = COMPANY_TINT[company.company_label] ?? "oklch(0.62 0.20 270)";
   return (
     <div
@@ -408,17 +437,17 @@ function CompanyBreakdownCard({ company }: { company: WorkforceKPICompanyToday }
             style={{ backgroundColor: tint }}
           />
           <span className="font-heading font-semibold tracking-tight">
-            {company.company_label}
+            {displayCompany(company.company_label)}
           </span>
         </div>
         <span className="text-xs text-muted-foreground tabular-nums">
-          total {company.total_present}
+          {t("workforce.totalLabel")} {company.total_present}
         </span>
       </div>
       <div className="grid grid-cols-3 gap-2">
-        <CompanyStatBox label="Direct" value={company.direct_present} accentTint="oklch(0.62 0.20 270)" />
-        <CompanyStatBox label="Indirect" value={company.indirect_present} accentTint="oklch(0.70 0.15 200)" />
-        <CompanyStatBox label="Subcont." value={company.subcontractor_present} accentTint="oklch(0.68 0.18 155)" />
+        <CompanyStatBox label={t("workforce.direct")} value={company.direct_present} accentTint="oklch(0.62 0.20 270)" />
+        <CompanyStatBox label={t("workforce.indirect")} value={company.indirect_present} accentTint="oklch(0.70 0.15 200)" />
+        <CompanyStatBox label={t("workforce.subcontShort")} value={company.subcontractor_present} accentTint="oklch(0.68 0.18 155)" />
       </div>
     </div>
   );
@@ -452,6 +481,7 @@ function CompanyStatBox({
 // RecentSnapshotsTable - premium sortable table (Phase 6)
 // =============================================================================
 function RecentSnapshotsTable({ snapshots }: { snapshots: WorkforceSnapshotListItem[] }) {
+  const { t } = useT();
   const [sortKey, setSortKey] = useState<"date" | "company" | "total">("date");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
 
@@ -529,20 +559,20 @@ function RecentSnapshotsTable({ snapshots }: { snapshots: WorkforceSnapshotListI
   return (
     <Card className="border-foreground/5 bg-card/60 backdrop-blur-sm">
       <CardHeader>
-        <CardTitle className="text-base font-medium">Recent Snapshots</CardTitle>
+        <CardTitle className="text-base font-medium">{t("workforce.recentSnapshots")}</CardTitle>
       </CardHeader>
       <CardContent className="p-0">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="border-b border-foreground/5">
               <tr>
-                <SortHeader sortId="date">Date</SortHeader>
-                <SortHeader sortId="company">Company</SortHeader>
-                <th className="px-3 py-2.5 text-left text-[10px] uppercase tracking-wider font-medium text-muted-foreground">Direct</th>
-                <th className="px-3 py-2.5 text-left text-[10px] uppercase tracking-wider font-medium text-muted-foreground">Subcont.</th>
-                <SortHeader sortId="total">Total</SortHeader>
-                <th className="px-3 py-2.5 text-left text-[10px] uppercase tracking-wider font-medium text-muted-foreground">Δ Prev</th>
-                <th className="px-3 py-2.5 text-left text-[10px] uppercase tracking-wider font-medium text-muted-foreground">Status</th>
+                <SortHeader sortId="date">{t("workforce.colDate")}</SortHeader>
+                <SortHeader sortId="company">{t("workforce.colCompany")}</SortHeader>
+                <th className="px-3 py-2.5 text-left text-[10px] uppercase tracking-wider font-medium text-muted-foreground">{t("workforce.direct")}</th>
+                <th className="px-3 py-2.5 text-left text-[10px] uppercase tracking-wider font-medium text-muted-foreground">{t("workforce.subcontShort")}</th>
+                <SortHeader sortId="total">{t("tenders.total")}</SortHeader>
+                <th className="px-3 py-2.5 text-left text-[10px] uppercase tracking-wider font-medium text-muted-foreground">{t("workforce.colDeltaPrev")}</th>
+                <th className="px-3 py-2.5 text-left text-[10px] uppercase tracking-wider font-medium text-muted-foreground">{t("subs.colStatus")}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-foreground/5">
@@ -565,7 +595,7 @@ function RecentSnapshotsTable({ snapshots }: { snapshots: WorkforceSnapshotListI
                             : "border-[oklch(0.68_0.18_155)]/30 bg-[oklch(0.68_0.18_155)]/10 text-[oklch(0.68_0.18_155)]")
                         }
                       >
-                        {s.company_label}
+                        {displayCompany(s.company_label)}
                       </span>
                     </td>
                     <td className="px-3 py-3 tabular-nums text-muted-foreground">
@@ -599,7 +629,7 @@ function RecentSnapshotsTable({ snapshots }: { snapshots: WorkforceSnapshotListI
                     <td className="px-3 py-3">
                       <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full border border-emerald-500/20 bg-emerald-500/10 text-emerald-500">
                         <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                        Imported
+                        {t("workforce.statusImported")}
                       </span>
                     </td>
                   </tr>

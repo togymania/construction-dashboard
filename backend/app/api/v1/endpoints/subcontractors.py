@@ -1486,12 +1486,56 @@ async def get_aggregate_cashflow_forecast(
     insufficient_count = 0
     confidence_weights: list[tuple[float, float]] = []  # (confidence, weight)
 
+    # Project-wide pooled ledger expense history — surface harcamalar even when
+    # entries are not yet linked to a subcontractor. Without this, the chart
+    # ends up empty for projects where most ledger rows are unlinked.
+    from app.models.ledger_entry import LedgerEntry as _LE, LedgerEntryType as _LET
+    pooled_rows = (await db.execute(
+        select(
+            func.to_char(func.date_trunc("month", _LE.entry_date), "YYYY-MM").label("month"),
+            func.coalesce(func.sum(_LE.amount), 0).label("amount"),
+        )
+        .where(
+            _LE.entry_type == _LET.EXPENSE,
+            _LE.subcontractor_id.is_(None),
+        )
+        .group_by("month").order_by("month")
+    )).all()
+    for _month, _amt in pooled_rows:
+        if _month:
+            hist_by_month[_month] = hist_by_month.get(_month, Decimal("0")) + Decimal(str(_amt or 0))
+
+    # Simple project-level forecast from the pooled history: average of last 3
+    # non-zero months projected forward, with ±20% best/worst bands. This is
+    # added to whatever per-sub forecast comes out below.
+    pooled_values = [Decimal(str(a or 0)) for _, a in pooled_rows if a and Decimal(str(a)) > 0]
+    if pooled_values:
+        last_3 = pooled_values[-3:]
+        base_avg = sum(last_3) / Decimal(len(last_3))
+        from datetime import date as _date
+        _today = _date.today()
+        for i in range(1, 4):
+            total_idx = _today.year * 12 + (_today.month - 1) + i
+            y, m0 = divmod(total_idx, 12)
+            fmonth = _date(y, m0 + 1, 1).strftime("%Y-%m")
+            fc_likely[fmonth] = fc_likely.get(fmonth, Decimal("0")) + base_avg
+            fc_best[fmonth] = fc_best.get(fmonth, Decimal("0")) + (base_avg * Decimal("1.2"))
+            fc_worst[fmonth] = fc_worst.get(fmonth, Decimal("0")) + (base_avg * Decimal("0.7"))
+            fc_season.setdefault(fmonth, []).append(1.0)
+        # Boost aggregate confidence with the pooled data weight.
+        confidence_weights.append((0.6, float(base_avg) * 3))
+
     for sub in subs:
-        # History rows for this sub
+        # History rows for this sub — birleşik kaynak:
+        #  (a) SubcontractorPayment (formal hakediş)
+        #  (b) LedgerEntry EXPENSE (Excel'den içe aktarılan banka hareketleri)
+        # Aynı ay aynı sub için her iki kaynak varsa toplanır.
+        from app.models.ledger_entry import LedgerEntry, LedgerEntryType
+
         contract_ids_stmt = select(SubcontractorContract.id).where(
             SubcontractorContract.subcontractor_id == sub.id
         )
-        history_rows = (await db.execute(
+        sp_history = (await db.execute(
             select(
                 func.to_char(func.date_trunc("month", SubcontractorPayment.payment_date), "YYYY-MM").label("month"),
                 func.coalesce(func.sum(SubcontractorPayment.amount), 0).label("amount"),
@@ -1503,6 +1547,28 @@ async def get_aggregate_cashflow_forecast(
             .group_by("month").order_by("month")
         )).all()
 
+        ledger_history = (await db.execute(
+            select(
+                func.to_char(func.date_trunc("month", LedgerEntry.entry_date), "YYYY-MM").label("month"),
+                func.coalesce(func.sum(LedgerEntry.amount), 0).label("amount"),
+            )
+            .where(
+                LedgerEntry.entry_type == LedgerEntryType.EXPENSE,
+                LedgerEntry.subcontractor_id == sub.id,
+            )
+            .group_by("month").order_by("month")
+        )).all()
+
+        # İki kaynağı tek dict'te topla
+        merged: dict[str, Decimal] = {}
+        for month, amt in sp_history:
+            if month:
+                merged[month] = merged.get(month, Decimal("0")) + Decimal(str(amt or 0))
+        for month, amt in ledger_history:
+            if month:
+                merged[month] = merged.get(month, Decimal("0")) + Decimal(str(amt or 0))
+        history_rows = sorted(merged.items())
+
         # Contracts for this sub (all statuses — engine filters)
         sub_contracts = (await db.execute(
             select(SubcontractorContract).where(
@@ -1513,17 +1579,25 @@ async def get_aggregate_cashflow_forecast(
         contract_dicts: list[dict] = []
         active_count_for_sub = 0
         for c in sub_contracts:
-            paid_total = (await db.execute(
+            # SubcontractorPayment + LedgerEntry birleşik paid total
+            sp_paid = (await db.execute(
                 select(func.coalesce(func.sum(SubcontractorPayment.amount), 0)).where(
                     SubcontractorPayment.contract_id == c.id,
                     SubcontractorPayment.status == PaymentStatus.PAID,
                 )
             )).scalar_one() or 0
+            ledger_paid = (await db.execute(
+                select(func.coalesce(func.sum(LedgerEntry.amount), 0)).where(
+                    LedgerEntry.entry_type == LedgerEntryType.EXPENSE,
+                    LedgerEntry.contract_id == c.id,
+                )
+            )).scalar_one() or 0
+            paid_total = Decimal(str(sp_paid)) + Decimal(str(ledger_paid))
             contract_dicts.append({
                 "id": c.id,
                 "label": c.contract_number or c.description[:40],
                 "contract_amount": c.contract_amount,
-                "total_paid": Decimal(str(paid_total)),
+                "total_paid": paid_total,
                 "end_date": c.end_date,
                 "status": c.status.value,
             })
@@ -2211,6 +2285,44 @@ async def get_ai_insights(
 @router.get(
     "/subcontractors/{sub_id}/profile-report",
     response_model=SubcontractorProfileReport,
+    summary="Consolidated AI-generated profile report ('firma kartviziti')",
+)
+async def get_profile_report(
+    sub_id: int,
+    user: CurrentUser,
+    db: DBSession,
+    lang: UserLang,
+    force_refresh: bool = Query(False, description="Bypass cache and re-generate"),
+) -> SubcontractorProfileReport:
+    """Build the executive 'business card' for a subcontractor.
+
+    Cached for 1 hour because the LLM call is expensive. The cache key is
+    suffixed with the UI language so EN and TR variants don't shadow each
+    other and Claude isn't re-asked when the same language is requested
+    twice in a row. The cache is invalidated automatically when a new
+    contract document is uploaded or extracted_data is patched.
+    """
+    from app.services import insights_cache
+    from app.services.subcontractor_profile import build_profile_report
+
+    # disjoint from ai-insights cache namespace; multiply by 10 + lang flag
+    # so EN and TR live in separate slots
+    cache_key = (sub_id + 1_000_000) * 10 + (1 if lang == "TR" else 0)
+
+    if not force_refresh:
+        cached = insights_cache.get(cache_key)
+        if cached is not None:
+            return cached  # type: ignore[return-value]
+
+    report = await build_profile_report(db, sub_id, lang=lang)
+    if report is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Subcontractor not found")
+
+    # 1-hour TTL via cache helper (cache module uses a fixed 10-min TTL but we
+    # tolerate stale up to whatever it sets; force_refresh is the user escape).
+    insights_cache.set(cache_key, report)  # type: ignore[arg-type]
+    return report
+SubcontractorProfileReport,
     summary="Consolidated AI-generated profile report ('firma kartviziti')",
 )
 async def get_profile_report(

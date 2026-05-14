@@ -1,28 +1,23 @@
-"""AI Project Analysis service.
+"""AI Project Analysis service (v2 -- executive director).
 
-Wraps a single project's data (schedule, finance, workforce, ledger
-quality) into structured facts and asks Claude to produce a 6-section
-executive briefing. When Claude is unavailable, a rule-based fallback
-produces a parallel structure so the page never renders empty.
+Pipeline:
+  _collect_facts  -- pull all schedule / cost / workforce / quality data
+  _compute_kpis   -- compute the 8 KPIs (deterministic)
+  _rule_verdict   -- baseline verdict for when Claude is unavailable
+  _llm_verdict    -- decisive Claude-driven verdict using the 7-step logic
+  build_ai_analysis -- the single public entry point
 
-The 6 sections mirror the prompt template the product owner supplied:
-
-  🔴 Subcontractor & Schedule
-  🟠 Data Quality
-  🟡 Financial (EAC)
-  🟢 Workforce / Productivity
-  🔵 Risk Analysis & Forecast
-  🧠 Executive Summary
-
-The LLM is instructed to write all output in the requested UI language
-(EN or TR) regardless of the language of the underlying records;
-proper nouns (company names, people) may stay in their original script.
+The KPI list is computed deterministically *regardless of Claude
+availability*, so the tile grid is always trustworthy. Claude only
+provides the verdict narrative (headline, drivers, actions). When the
+LLM is offline or fails the rule engine fills the same verdict shape
+so the UI never renders blank.
 """
 from __future__ import annotations
 
 import json
 import re
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any
 
@@ -41,23 +36,15 @@ from app.models.subcontractor import (
 )
 from app.models.workforce import WorkforceSnapshot
 from app.schemas.project_ai_analysis import (
-    CriticalDelay,
-    DataQualitySection,
-    DisciplineDelay,
-    ExecutiveSection,
-    FinancialSection,
-    ProductivitySection,
+    AIVerdict,
+    KPIStatus,
     ProjectAIAnalysis,
-    RiskSection,
-    ScheduleSection,
-    SuggestedMatch,
-    TopRisk,
 )
 
 
-# =============================================================================
+# ============================================================================
 # Public entry point
-# =============================================================================
+# ============================================================================
 
 
 async def build_ai_analysis(
@@ -66,110 +53,121 @@ async def build_ai_analysis(
     *,
     lang: str = "EN",
 ) -> ProjectAIAnalysis | None:
-    """Build the full 6-section analysis for a project.
-
-    Returns None when the project doesn't exist. Otherwise returns the
-    populated analysis -- LLM-narrated when ANTHROPIC_API_KEY is set,
-    rule-based otherwise.
-    """
+    """Build the v2 executive analysis for a single project."""
     project = await db.get(Project, project_id)
     if project is None:
         return None
 
     facts = await _collect_facts(db, project)
+    kpis_dict = _compute_kpis(facts)
+
     api_key = (settings.ANTHROPIC_API_KEY or "").strip()
-
+    verdict_payload: dict[str, Any] | None = None
+    source = "rule"
     if api_key:
-        narrative = _llm_analysis(facts, api_key, lang=lang)
-        if narrative is not None:
-            narrative["source"] = "llm"
-            return _assemble(project_id, lang, narrative)
+        verdict_payload = _llm_verdict(facts, kpis_dict, api_key, lang=lang)
+        if verdict_payload is not None:
+            source = "llm"
 
-    # Rule fallback
-    narrative = _rule_analysis(facts)
-    narrative["source"] = "rule"
-    return _assemble(project_id, lang, narrative)
+    if verdict_payload is None:
+        verdict_payload = _rule_verdict(facts, kpis_dict, lang=lang)
 
-
-def _assemble(
-    project_id: int,
-    lang: str,
-    narrative: dict[str, Any],
-) -> ProjectAIAnalysis:
-    """Validate the narrative dict into the response model."""
     return ProjectAIAnalysis(
         project_id=project_id,
         generated_at=datetime.now(timezone.utc),
         lang="TR" if lang.upper() == "TR" else "EN",
-        source=narrative.get("source", "rule"),  # type: ignore[arg-type]
-        schedule=ScheduleSection(**narrative["schedule"]),
-        data_quality=DataQualitySection(**narrative["data_quality"]),
-        financial=FinancialSection(**narrative["financial"]),
-        productivity=ProductivitySection(**narrative["productivity"]),
-        risk=RiskSection(**narrative["risk"]),
-        executive=ExecutiveSection(**narrative["executive"]),
+        source=source,  # type: ignore[arg-type]
+        kpis=_kpis_to_models(kpis_dict, lang=lang),
+        verdict=AIVerdict(**verdict_payload),
     )
 
 
-# =============================================================================
-# Fact collection -- pull everything once, hand off to LLM or rule engine
-# =============================================================================
+# ============================================================================
+# Fact collection
+# ============================================================================
 
 
 async def _collect_facts(db: AsyncSession, project: Project) -> dict[str, Any]:
     today = date.today()
     project_id = project.id
 
-    # ---- Contracts (with subcontractor join) ----
+    # ---- Contracts ----------------------------------------------------------
     contracts_stmt = (
         select(SubcontractorContract, Subcontractor)
-        .join(Subcontractor, Subcontractor.id == SubcontractorContract.subcontractor_id)
+        .join(
+            Subcontractor,
+            Subcontractor.id == SubcontractorContract.subcontractor_id,
+        )
         .where(SubcontractorContract.project_id == project_id)
     )
     contract_rows = (await db.execute(contracts_stmt)).all()
 
     total_contracts = len(contract_rows)
     overdue: list[dict[str, Any]] = []
-    by_discipline: dict[str, dict[str, int]] = {}
+    contractor_risk: dict[int, dict[str, Any]] = {}
 
+    # Critical-path approximation: contracts whose end_date falls within
+    # 30 days of the project end_date (no `is_critical_path` column
+    # exists yet). Cheap heuristic -- documented here so reviewers know
+    # it's intentional.
+    project_end = project.end_date
+    critical_window_start = (
+        project_end - timedelta(days=30) if project_end else None
+    )
+
+    critical_blocked = False
     for contract, sub in contract_rows:
-        if contract.status == ContractStatus.ACTIVE and contract.end_date < today:
+        is_overdue = (
+            contract.status == ContractStatus.ACTIVE
+            and contract.end_date < today
+        )
+        is_critical = (
+            critical_window_start is not None
+            and project_end is not None
+            and critical_window_start <= contract.end_date <= project_end
+        )
+        if is_overdue:
             days_overdue = (today - contract.end_date).days
             overdue.append({
                 "subcontractor": sub.name,
                 "contract_id": contract.id,
                 "days": int(days_overdue),
-                "reason": f"End date {contract.end_date.isoformat()} passed",
+                "is_critical": is_critical,
             })
-            disc = (sub.specialization or "Unknown").strip() or "Unknown"
-            bucket = by_discipline.setdefault(disc, {"delayed_count": 0, "delay_days": 0})
-            bucket["delayed_count"] += 1
-            bucket["delay_days"] += int(days_overdue)
+            bucket = contractor_risk.setdefault(
+                sub.id, {"name": sub.name, "days_overdue": 0}
+            )
+            bucket["days_overdue"] = max(
+                bucket["days_overdue"], int(days_overdue)
+            )
+            if is_critical:
+                critical_blocked = True
 
-    # ---- Budget items (Budget at Completion) ----
+    contractor_risk_top = sorted(
+        contractor_risk.values(),
+        key=lambda x: x["days_overdue"],
+        reverse=True,
+    )[:5]
+
+    # ---- Budget / Earned-Value ---------------------------------------------
     bac = Decimal((await db.execute(
         select(func.coalesce(func.sum(BudgetItem.planned_amount), 0))
         .where(BudgetItem.project_id == project_id)
     )).scalar_one() or 0)
-
-    # If no budget_items defined, fall back to project.budget_rub so
-    # EAC math doesn't divide by zero on a partially-set-up project.
     if bac == 0:
         bac = Decimal(project.budget_rub or 0)
 
-    # ---- Actual cost (AC): ledger EXPENSE + classic expenses table ----
-    # LedgerEntry has no project_id of its own; it's tied to a contract,
-    # which carries the project_id. Join through the contract to scope
-    # spend per project.
     ledger_ac = Decimal((await db.execute(
         select(func.coalesce(func.sum(LedgerEntry.amount), 0))
-        .join(SubcontractorContract, SubcontractorContract.id == LedgerEntry.contract_id)
+        .join(
+            SubcontractorContract,
+            SubcontractorContract.id == LedgerEntry.contract_id,
+        )
         .where(
             SubcontractorContract.project_id == project_id,
             LedgerEntry.entry_type == LedgerEntryType.EXPENSE,
         )
     )).scalar_one() or 0)
-
     expense_ac = Decimal((await db.execute(
         select(func.coalesce(func.sum(Expense.amount), 0))
         .where(Expense.project_id == project_id)
@@ -177,27 +175,14 @@ async def _collect_facts(db: AsyncSession, project: Project) -> dict[str, Any]:
     ac = ledger_ac + expense_ac
 
     progress_pct = float(project.progress_pct or 0)
-    ev = bac * Decimal(progress_pct / 100.0) if bac > 0 else Decimal(0)
-    cpi = float(ev / ac) if ac > 0 else 1.0
-    eac = ac + (bac - ev) / Decimal(cpi if cpi > 0 else 1.0)
-    variance = bac - eac
-    budget_used_pct = float(ac / bac * 100) if bac > 0 else 0.0
 
-    if bac == 0:
-        fin_status = "UNKNOWN"
-    elif eac > bac * Decimal("1.05"):
-        fin_status = "OVER_BUDGET"
-    elif eac < bac * Decimal("0.95"):
-        fin_status = "UNDER_BUDGET"
-    else:
-        fin_status = "ON_TRACK"
-
-    # ---- Data quality (portfolio-wide for now) ----
-    # LedgerEntry isn't project-scoped at the row level. Unassigned rows
-    # by definition have no project context. We report portfolio totals
-    # so the user can see the cleanup queue from any project's analysis.
+    # ---- Data quality ------------------------------------------------------
+    # Portfolio-level (LedgerEntry has no project_id of its own); see
+    # the legacy comment in the previous revision for the full reason.
     uncategorized = int((await db.execute(
-        select(func.count(LedgerEntry.id)).where(LedgerEntry.budget_code.is_(None))
+        select(func.count(LedgerEntry.id)).where(
+            LedgerEntry.budget_code.is_(None)
+        )
     )).scalar_one() or 0)
     unassigned = int((await db.execute(
         select(func.count(LedgerEntry.id)).where(
@@ -205,88 +190,48 @@ async def _collect_facts(db: AsyncSession, project: Project) -> dict[str, Any]:
             LedgerEntry.entry_type == LedgerEntryType.EXPENSE,
         )
     )).scalar_one() or 0)
-
-    # Risk level based on combined ratio of dirty rows
     total_entries = int((await db.execute(
         select(func.count(LedgerEntry.id))
     )).scalar_one() or 0)
-    dirty_ratio = ((uncategorized + unassigned) / total_entries) if total_entries > 0 else 0.0
-    if dirty_ratio >= 0.4:
-        dq_risk = "HIGH"
-    elif dirty_ratio >= 0.15:
-        dq_risk = "MEDIUM"
-    else:
-        dq_risk = "LOW"
+    dirty_ratio = (
+        (uncategorized + unassigned) / total_entries
+        if total_entries > 0 else 0.0
+    )
+    # Reliability = 1 - dirty_ratio  (clamped to 0..1, percentage)
+    reliability_pct = max(0.0, min(100.0, (1.0 - dirty_ratio) * 100.0))
 
-    # ---- Suggested matches (top 10 unassigned + fuzzy match to subs) ----
-    # Lightweight rapidfuzz-based suggestion. Skip if the optional dep
-    # isn't installed so the service stays resilient.
-    suggested_matches: list[dict[str, Any]] = []
-    try:
-        from rapidfuzz import fuzz, process  # type: ignore
-
-        sub_names = [(sub.id, sub.name) for _, sub in contract_rows]
-        # Dedupe sub names
-        seen = set()
-        deduped_subs = []
-        for sid, name in sub_names:
-            if sid not in seen:
-                seen.add(sid)
-                deduped_subs.append((sid, name))
-
-        if deduped_subs:
-            sample = (await db.execute(
-                select(LedgerEntry.id, LedgerEntry.description)
-                .where(
-                    LedgerEntry.subcontractor_id.is_(None),
-                    LedgerEntry.entry_type == LedgerEntryType.EXPENSE,
-                )
-                .limit(50)
-            )).all()
-            for entry_id, desc in sample:
-                if not desc:
-                    continue
-                best = process.extractOne(
-                    desc,
-                    [name for _, name in deduped_subs],
-                    scorer=fuzz.partial_ratio,
-                )
-                if best and best[1] >= 70:
-                    suggested_matches.append({
-                        "entry_id": int(entry_id),
-                        "description": desc[:120],
-                        "suggested_target": str(best[0]),
-                        "confidence": round(best[1] / 100.0, 2),
-                    })
-                if len(suggested_matches) >= 5:
-                    break
-    except ImportError:
-        pass
-
-    # ---- Workforce ----
-    latest_snapshot = (await db.execute(
+    # ---- Workforce momentum ------------------------------------------------
+    snapshots = (await db.execute(
         select(WorkforceSnapshot)
         .where(WorkforceSnapshot.project_id == project_id)
         .order_by(WorkforceSnapshot.snapshot_date.desc())
-        .limit(1)
-    )).scalar_one_or_none()
+        .limit(30)
+    )).scalars().all()
 
-    headcount = 0
-    man_hours = 0.0
-    if latest_snapshot is not None:
-        # Snapshot already holds denormalized total_present (headcount).
-        # man-hours are not tracked separately yet -- estimate as
-        # headcount * 10h (standard inşaat shift) so the productivity
-        # card has *some* number for Claude to reason about. Marked
-        # explicitly as an estimate downstream.
-        headcount = int(latest_snapshot.total_present or 0)
-        man_hours = float(headcount * 10)
+    latest_headcount = 0
+    prev_headcount = 0
+    momentum = "unknown"
+    if snapshots:
+        latest_headcount = int(snapshots[0].total_present or 0)
+        # Find a snapshot ~7 days before the latest
+        ref_date = snapshots[0].snapshot_date - timedelta(days=7)
+        prev_snap = next(
+            (s for s in snapshots[1:] if s.snapshot_date <= ref_date),
+            None,
+        )
+        if prev_snap is not None:
+            prev_headcount = int(prev_snap.total_present or 0)
+            if latest_headcount > prev_headcount * 1.05:
+                momentum = "growing"
+            elif latest_headcount < prev_headcount * 0.95:
+                momentum = "declining"
+            else:
+                momentum = "flat"
 
     return {
         "project": {
             "id": project.id,
             "name": project.name,
-            "budget_rub": float(project.budget_rub or 0),
             "progress_pct": progress_pct,
             "start_date": project.start_date.isoformat() if project.start_date else None,
             "end_date": project.end_date.isoformat() if project.end_date else None,
@@ -294,336 +239,582 @@ async def _collect_facts(db: AsyncSession, project: Project) -> dict[str, Any]:
         },
         "schedule": {
             "total_contracts": total_contracts,
+            "overdue_count": len(overdue),
             "overdue": overdue,
-            "by_discipline": by_discipline,
             "total_delay_days": sum(o["days"] for o in overdue),
+            "max_overdue_days": max((o["days"] for o in overdue), default=0),
+            "critical_blocked": critical_blocked,
+        },
+        "financial": {
+            "bac": float(bac),
+            "ac": float(ac),
+            "budget_used_pct": float(ac / bac * 100) if bac > 0 else 0.0,
+            "progress_pct": progress_pct,
         },
         "data_quality": {
             "uncategorized_count": uncategorized,
             "unassigned_count": unassigned,
             "total_entries": total_entries,
             "dirty_ratio": round(dirty_ratio, 3),
-            "risk_level": dq_risk,
-            "suggested_matches": suggested_matches,
+            "reliability_pct": round(reliability_pct, 1),
         },
-        "financial": {
-            "bac": float(bac),
-            "ac": float(ac),
-            "ev": float(ev),
-            "cpi": round(cpi, 3),
-            "eac": float(eac),
-            "variance": float(variance),
-            "progress_pct": progress_pct,
-            "budget_used_pct": round(budget_used_pct, 2),
-            "status": fin_status,
+        "workforce": {
+            "latest_headcount": latest_headcount,
+            "prev_headcount": prev_headcount,
+            "momentum": momentum,
         },
-        "productivity": {
-            "headcount": headcount,
-            "man_hours": man_hours,
-            "snapshot_date": latest_snapshot.snapshot_date.isoformat() if latest_snapshot else None,
+        "contractor_risk": contractor_risk_top,
+    }
+
+
+# ============================================================================
+# KPI computation  (deterministic, no LLM)
+# ============================================================================
+
+
+def _compute_kpis(facts: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    """Run the 7-step logic and return raw KPI dicts keyed by stable id."""
+    proj = facts["project"]
+    sched = facts["schedule"]
+    fin = facts["financial"]
+    dq = facts["data_quality"]
+    wf = facts["workforce"]
+    today = date.today()
+
+    # ----- Step 1: data confidence (driven by reliability_pct) --------------
+    if dq["dirty_ratio"] >= 0.40:
+        data_confidence = "LOW"
+    elif dq["dirty_ratio"] >= 0.20:
+        data_confidence = "MEDIUM"
+    else:
+        data_confidence = "HIGH"
+
+    # ----- Step 2: schedule + projected delay -------------------------------
+    start_iso = proj["start_date"]
+    end_iso = proj["end_date"]
+    progress_pct = float(proj["progress_pct"] or 0)
+
+    schedule_delay_days = 0
+    projected_delay_days = 0
+    planned_progress = 0.0
+    if start_iso and end_iso:
+        start_d = date.fromisoformat(start_iso)
+        end_d = date.fromisoformat(end_iso)
+        span = max((end_d - start_d).days, 1)
+        elapsed = max(0, min((today - start_d).days, span))
+        planned_progress = (elapsed / span) * 100.0
+        # delay in days = (planned - actual) * span / 100
+        diff_pct = planned_progress - progress_pct
+        schedule_delay_days = int(diff_pct / 100.0 * span)
+
+        # projected completion delay: extrapolate from current velocity
+        if elapsed > 0 and progress_pct > 0:
+            velocity = progress_pct / elapsed  # %/day
+            remaining = max(0.0, 100.0 - progress_pct)
+            days_needed = remaining / velocity if velocity > 0 else span
+            projected_end = today + timedelta(days=int(days_needed))
+            projected_delay_days = (projected_end - end_d).days
+
+    if schedule_delay_days <= 3:
+        sched_status = "ok"
+    elif schedule_delay_days <= 14:
+        sched_status = "watch"
+    else:
+        sched_status = "critical"
+
+    if projected_delay_days <= 3:
+        proj_status = "ok"
+    elif projected_delay_days <= 14:
+        proj_status = "watch"
+    else:
+        proj_status = "critical"
+
+    # ----- Step 3: critical path -------------------------------------------
+    if sched["critical_blocked"]:
+        critical_path_state = "blocked"
+        critical_status = "critical"
+    elif sched["overdue_count"] > 0:
+        critical_path_state = "at_risk"
+        critical_status = "watch"
+    else:
+        critical_path_state = "clear"
+        critical_status = "ok"
+
+    # ----- Step 4: resource efficiency -------------------------------------
+    headcount = wf["latest_headcount"]
+    if headcount > 0:
+        # progress_pct per 1000 worker-days proxy
+        efficiency_score = progress_pct / headcount * 1000.0
+        eff_value = f"{efficiency_score:.1f}"
+        # Heuristic threshold: under 20 means many people, little progress.
+        # Combined with momentum trend per spec.
+        if (
+            wf["momentum"] == "growing"
+            and efficiency_score < 20.0
+        ):
+            eff_status = "critical"
+        elif efficiency_score < 15.0:
+            eff_status = "watch"
+        else:
+            eff_status = "ok"
+    else:
+        eff_value = "—"
+        eff_status = "unknown"
+
+    # ----- Step 5: cost consistency ----------------------------------------
+    bac = fin["bac"]
+    ac = fin["ac"]
+    if bac <= 0 or progress_pct <= 0:
+        cost_state = "unknown"
+        cost_status = "unknown"
+    else:
+        cost_ratio = (ac / bac) if bac > 0 else 0.0
+        progress_ratio = progress_pct / 100.0
+        diff = cost_ratio - progress_ratio
+        if diff > 0.20:
+            cost_state = "overrun_risk"
+            cost_status = "critical"
+        elif diff < -0.20:
+            cost_state = "underreported"
+            cost_status = "watch"
+        else:
+            cost_state = "consistent"
+            cost_status = "ok"
+
+    # ----- Step 6: data reliability (already computed) ---------------------
+    reliability_pct = dq["reliability_pct"]
+    if reliability_pct >= 80:
+        rel_status = "ok"
+    elif reliability_pct >= 60:
+        rel_status = "watch"
+    else:
+        rel_status = "critical"
+
+    # ----- Contractor risk ------------------------------------------------
+    risk_list = facts["contractor_risk"]
+    risk_count = len(risk_list)
+    if risk_count == 0:
+        contractor_status = "ok"
+    elif risk_count <= 2:
+        contractor_status = "watch"
+    else:
+        contractor_status = "critical"
+
+    # ----- Bundle ----------------------------------------------------------
+    return {
+        "schedule_health": {
+            "value": f"{schedule_delay_days:+d} d",
+            "status": sched_status,
+            "raw_delay": schedule_delay_days,
+            "planned_pct": planned_progress,
+        },
+        "projected_delay": {
+            "value": f"{projected_delay_days:+d} d",
+            "status": proj_status,
+            "raw_delay": projected_delay_days,
+        },
+        "critical_path": {
+            "value": critical_path_state.upper().replace("_", " "),
+            "status": critical_status,
+            "raw_state": critical_path_state,
+        },
+        "progress": {
+            "value": f"{progress_pct:.0f} %",
+            "status": "ok" if progress_pct > 0 else "unknown",
+            "raw_progress": progress_pct,
+        },
+        "resource_efficiency": {
+            "value": eff_value,
+            "status": eff_status,
+            "raw_headcount": headcount,
+            "raw_momentum": wf["momentum"],
+        },
+        "cost_consistency": {
+            "value": cost_state.upper().replace("_", " "),
+            "status": cost_status,
+            "raw_state": cost_state,
+            "raw_used_pct": fin["budget_used_pct"],
+        },
+        "data_reliability": {
+            "value": f"{reliability_pct:.0f} %",
+            "status": rel_status,
+            "raw_pct": reliability_pct,
+            "raw_confidence": data_confidence,
+        },
+        "contractor_risk": {
+            "value": str(risk_count),
+            "status": contractor_status,
+            "raw_top": risk_list,
+        },
+        "_meta": {
+            "data_confidence": data_confidence,
+            "project_blocked": sched["critical_blocked"],
+            "projected_delay_days": projected_delay_days,
+            "schedule_delay_days": schedule_delay_days,
         },
     }
 
 
-# =============================================================================
-# LLM narrative
-# =============================================================================
+def _kpis_to_models(
+    kpis: dict[str, dict[str, Any]],
+    *,
+    lang: str,
+) -> list[KPIStatus]:
+    """Convert the computed dict into the fixed-order KPIStatus list.
+
+    The frontend treats `key` as stable for i18n binding; the `label`
+    is just a fallback when the frontend has no translation.
+    """
+    is_tr = lang.upper() == "TR"
+    labels = {
+        "schedule_health": ("Schedule Health", "Takvim Sağlığı"),
+        "projected_delay": ("Projected Completion Delay", "Öngörülen Tamamlanma Gecikmesi"),
+        "critical_path": ("Critical Path", "Kritik Yol"),
+        "progress": ("Progress (Actual)", "İlerleme (Fiili)"),
+        "resource_efficiency": ("Resource Efficiency", "Kaynak Verimliliği"),
+        "cost_consistency": ("Cost Consistency", "Maliyet Tutarlılığı"),
+        "data_reliability": ("Data Reliability", "Veri Güvenilirliği"),
+        "contractor_risk": ("Contractor Risk", "Yüklenici Riski"),
+    }
+    order = [
+        "schedule_health",
+        "projected_delay",
+        "critical_path",
+        "progress",
+        "resource_efficiency",
+        "cost_consistency",
+        "data_reliability",
+        "contractor_risk",
+    ]
+    result: list[KPIStatus] = []
+    for key in order:
+        k = kpis[key]
+        en, tr = labels[key]
+        result.append(KPIStatus(
+            key=key,
+            value=str(k.get("value", "")),
+            status=k.get("status", "unknown"),
+            label=tr if is_tr else en,
+            detail="",
+        ))
+    return result
 
 
-def _llm_analysis(
+# ============================================================================
+# Rule-based verdict (LLM fallback)
+# ============================================================================
+
+
+def _rule_verdict(
     facts: dict[str, Any],
+    kpis: dict[str, dict[str, Any]],
+    *,
+    lang: str,
+) -> dict[str, Any]:
+    is_tr = lang.upper() == "TR"
+    meta = kpis["_meta"]
+    blocked = meta["project_blocked"]
+    proj_delay = meta["projected_delay_days"]
+    confidence = meta["data_confidence"]
+
+    # ---- Step 7: final verdict --------------------------------------------
+    if blocked:
+        verdict = "CRITICAL"
+    elif proj_delay > 14:
+        verdict = "AT_RISK"
+    elif proj_delay > 3 or kpis["cost_consistency"]["status"] == "critical":
+        verdict = "AT_RISK"
+    elif confidence == "LOW":
+        # Cannot trust anything -> not on track
+        verdict = "AT_RISK"
+    else:
+        verdict = "ON_TRACK"
+
+    sched_delay = meta["schedule_delay_days"]
+    overdue_count = facts["schedule"]["overdue_count"]
+    cost_state = kpis["cost_consistency"]["raw_state"]
+    rel_pct = kpis["data_reliability"]["raw_pct"]
+    top_risk_list = facts["contractor_risk"]
+    top_risk_name = top_risk_list[0]["name"] if top_risk_list else None
+
+    # ---- Headline ---------------------------------------------------------
+    if is_tr:
+        headlines = {
+            "CRITICAL": "Proje kritik yolda tıkanmış durumda ve hedef tarihte teslim edilemez.",
+            "AT_RISK": f"Proje hedef tarihten {max(proj_delay, sched_delay)} gün geride; müdahale gerekiyor.",
+            "ON_TRACK": "Proje plana uygun ilerliyor; mevcut yönetim ritmi sürdürülmelidir.",
+        }
+    else:
+        headlines = {
+            "CRITICAL": "Project is blocked on the critical path and will not deliver on time.",
+            "AT_RISK": f"Project is {max(proj_delay, sched_delay)} days behind plan; intervention required.",
+            "ON_TRACK": "Project is tracking the plan; current execution rhythm must hold.",
+        }
+    headline = headlines[verdict]
+
+    # ---- Key drivers ------------------------------------------------------
+    drivers: list[str] = []
+    if is_tr:
+        if blocked:
+            drivers.append("Kritik yol taşeronu gecikmede")
+        if sched_delay > 0:
+            drivers.append(f"Takvimde {sched_delay} gün geri")
+        if cost_state == "overrun_risk":
+            drivers.append("Maliyet ilerlemeyi aşıyor (bütçe aşımı sinyali)")
+        elif cost_state == "underreported":
+            drivers.append("Harcamalar düşük raporlanıyor (eksik kayıt)")
+        if rel_pct < 60:
+            drivers.append(f"Veri güvenilirliği düşük (%{rel_pct:.0f})")
+        if not drivers:
+            drivers.append("Belirgin yapısal risk yok")
+    else:
+        if blocked:
+            drivers.append("Critical-path contractor is overdue")
+        if sched_delay > 0:
+            drivers.append(f"Schedule is {sched_delay} days behind")
+        if cost_state == "overrun_risk":
+            drivers.append("Cost outpaces progress (overrun signal)")
+        elif cost_state == "underreported":
+            drivers.append("Spend underreported vs progress")
+        if rel_pct < 60:
+            drivers.append(f"Data reliability low ({rel_pct:.0f}%)")
+        if not drivers:
+            drivers.append("No structural risk detected")
+    drivers = drivers[:3]
+
+    # ---- Critical blocker -------------------------------------------------
+    if blocked and top_risk_name:
+        critical_blocker = (
+            f"{top_risk_name} {top_risk_list[0]['days_overdue']} gün gecikmiş (kritik yol)"
+            if is_tr else
+            f"{top_risk_name} is {top_risk_list[0]['days_overdue']} days overdue on the critical path"
+        )
+    elif overdue_count > 0 and top_risk_name:
+        critical_blocker = (
+            f"{top_risk_name} sözleşme süresi aştı"
+            if is_tr else
+            f"{top_risk_name} contract is past end date"
+        )
+    elif cost_state == "overrun_risk":
+        critical_blocker = (
+            "Maliyet ilerlemeyi geçti -- bütçe aşımı sinyali"
+            if is_tr else
+            "Cost has overtaken progress -- budget overrun signal"
+        )
+    elif confidence == "LOW":
+        critical_blocker = (
+            "Veri kalitesi karar almak için yetersiz"
+            if is_tr else
+            "Data quality is insufficient for decision-making"
+        )
+    else:
+        critical_blocker = ""
+
+    # ---- Impact summary ---------------------------------------------------
+    if verdict == "CRITICAL":
+        impact_summary = "execution"
+    elif cost_state == "overrun_risk":
+        impact_summary = "cost"
+    elif proj_delay > 3 or sched_delay > 3:
+        impact_summary = "time"
+    else:
+        impact_summary = "execution"
+
+    # ---- Confidence note --------------------------------------------------
+    confidence_note = ""
+    if confidence == "LOW":
+        confidence_note = (
+            f"Defteri kebir kayıtlarının %{100 - rel_pct:.0f}'i bütçe kodu veya taşeron olmadan; finansal sayılara güvenilemez."
+            if is_tr else
+            f"{100 - rel_pct:.0f}% of ledger entries lack budget code or subcontractor link; financial numbers cannot be trusted."
+        )
+    elif confidence == "MEDIUM":
+        confidence_note = (
+            f"Veri güvenilirliği %{rel_pct:.0f} -- temizleme önerilir."
+            if is_tr else
+            f"Data reliability is {rel_pct:.0f}% -- cleanup recommended."
+        )
+
+    # ---- Required actions -------------------------------------------------
+    actions: list[str] = []
+    if is_tr:
+        if blocked and top_risk_name:
+            actions.append(f"{top_risk_name} taşeronunu bugün uyar ve telafi planı iste")
+        if overdue_count > 0:
+            actions.append(f"{overdue_count} gecikmiş sözleşmeyi yeniden planla")
+        if cost_state == "overrun_risk":
+            actions.append("Bütçe aşımı doğrulaması için maliyet incelemesi yap")
+        if confidence == "LOW":
+            actions.append("48 saat içinde eksik defter kayıtlarını ata")
+        if not actions:
+            actions.append("Haftalık ilerleme ritmini koru ve verileri taze tut")
+    else:
+        if blocked and top_risk_name:
+            actions.append(f"Escalate {top_risk_name} today and demand a recovery plan")
+        if overdue_count > 0:
+            actions.append(f"Re-baseline {overdue_count} overdue contracts")
+        if cost_state == "overrun_risk":
+            actions.append("Run a cost-variance review to confirm overrun")
+        if confidence == "LOW":
+            actions.append("Assign missing ledger entries within 48 hours")
+        if not actions:
+            actions.append("Hold weekly cadence and keep data current")
+    actions = actions[:3]
+
+    return {
+        "verdict": verdict,
+        "headline": headline,
+        "key_drivers": drivers,
+        "critical_blocker": critical_blocker,
+        "impact_delay_days": int(max(proj_delay, sched_delay, 0)),
+        "impact_summary": impact_summary,
+        "data_confidence": confidence,
+        "data_confidence_note": confidence_note,
+        "required_actions": actions,
+    }
+
+
+# ============================================================================
+# LLM verdict
+# ============================================================================
+
+
+_SYSTEM_PROMPT_EN = (
+    "You are a senior construction project director. Your job is NOT "
+    "to describe the data, but to make decisions and give clear "
+    "executive-level judgment. Always think in this order: "
+    "1) Can the project finish on time? "
+    "2) What is blocking completion? "
+    "3) Is the data reliable? "
+    "4) Are resources used efficiently? "
+    "5) What actions must be taken immediately? "
+    "Rules: be decisive and direct; do not hedge or speculate; if data "
+    "is unreliable, explicitly say so; focus on critical path and "
+    "completion risk; limit output to what matters for decision-making. "
+    "Use single-sentence verdict. Identify a single root cause. "
+    "If data is bad, say 'Financials cannot be trusted'. Never end "
+    "without actions. Use only 'will / cannot / is' -- never 'may / "
+    "might / possibly'."
+)
+
+
+_SYSTEM_PROMPT_TR = (
+    "Sen kıdemli bir inşaat proje direktörüsün. Görevin verileri "
+    "tarif etmek DEĞİL; karar vermek ve net, yönetici düzeyinde "
+    "yargı sunmaktır. Daima şu sırayla düşün: "
+    "1) Proje zamanında bitebilir mi? "
+    "2) Tamamlanmayı ne engelliyor? "
+    "3) Veriye güvenilebilir mi? "
+    "4) Kaynaklar verimli kullanılıyor mu? "
+    "5) Derhal hangi aksiyonlar alınmalı? "
+    "Kurallar: kararlı ve doğrudan ol; tereddüt etme ve spekülasyon "
+    "yapma; veri güvenilmezse açıkça söyle; kritik yol ve tamamlanma "
+    "riskine odaklan; yalnızca karara yarayanı yaz. "
+    "Karar tek cümlede verilir. Tek bir kök neden belirt. "
+    "Veri kötüyse 'Finansal verilere güvenilemez' diye yaz. Aksiyonsuz "
+    "asla bitirme. Sadece 'olacak / olamaz / -dır' kullan; "
+    "'olabilir / muhtemel' kullanma. Tüm çıktı Türkçe olacak."
+)
+
+
+def _llm_verdict(
+    facts: dict[str, Any],
+    kpis: dict[str, dict[str, Any]],
     api_key: str,
     *,
     lang: str = "EN",
 ) -> dict[str, Any] | None:
-    """Send the facts to Claude and parse a 6-section structured response.
-
-    Returns None on any failure so the caller can fall back to the rule
-    engine instead of leaking a half-broken response to the client.
-    """
+    """Ask Claude for the executive verdict. Returns None on any failure."""
     try:
         import anthropic  # type: ignore
 
-        client = anthropic.Anthropic(api_key=api_key, timeout=settings.LLM_TIMEOUT_SECONDS)
-        lang_name = "Turkish" if lang.upper() == "TR" else "English"
-        prompt = _build_prompt(facts, lang_name)
+        is_tr = lang.upper() == "TR"
+        system = _SYSTEM_PROMPT_TR if is_tr else _SYSTEM_PROMPT_EN
+
+        compact = {
+            "project": facts["project"],
+            "schedule": facts["schedule"],
+            "financial": facts["financial"],
+            "data_quality": facts["data_quality"],
+            "workforce": facts["workforce"],
+            "contractor_risk": facts["contractor_risk"],
+            "kpis": {
+                k: {
+                    "value": v.get("value"),
+                    "status": v.get("status"),
+                }
+                for k, v in kpis.items() if not k.startswith("_")
+            },
+            "meta": kpis["_meta"],
+        }
+
+        user_prompt = (
+            ("Proje verisi (JSON):\n" if is_tr else "Project facts (JSON):\n")
+            + "```json\n"
+            + json.dumps(compact, ensure_ascii=False, indent=2, default=str)
+            + "\n```\n\n"
+            + (
+                "Sadece JSON döndür; etrafına yazı yazma. Şu alanlar bulunmalı: "
+                if is_tr else
+                "Return ONLY a JSON object, no prose around it, with these fields: "
+            )
+            + "\n{\n"
+            '  "verdict": "ON_TRACK" | "AT_RISK" | "CRITICAL",\n'
+            '  "headline": "<single sentence>",\n'
+            '  "key_drivers": ["<max 3 short bullets>"],\n'
+            '  "critical_blocker": "<single biggest blocker>",\n'
+            '  "impact_delay_days": <int>,\n'
+            '  "impact_summary": "time" | "cost" | "execution",\n'
+            '  "data_confidence": "HIGH" | "MEDIUM" | "LOW",\n'
+            '  "data_confidence_note": "<only if not HIGH>",\n'
+            '  "required_actions": ["<max 3 immediate concrete actions>"]\n'
+            "}\n"
+        )
+
+        client = anthropic.Anthropic(
+            api_key=api_key, timeout=settings.LLM_TIMEOUT_SECONDS
+        )
         msg = client.messages.create(
             model=settings.ANTHROPIC_MODEL,
-            max_tokens=2500,
-            messages=[{"role": "user", "content": prompt}],
+            max_tokens=1200,
+            system=system,
+            messages=[{"role": "user", "content": user_prompt}],
         )
         raw = msg.content[0].text if msg.content else "{}"
         parsed = json.loads(_extract_json_block(raw))
 
-        # Validate the shape minimally -- presence of all 6 sections
-        required = {"schedule", "data_quality", "financial", "productivity", "risk", "executive"}
-        if not required.issubset(parsed.keys()):
+        # Trust deterministic numbers
+        parsed["impact_delay_days"] = int(
+            parsed.get("impact_delay_days") or kpis["_meta"]["projected_delay_days"] or 0
+        )
+        parsed.setdefault("data_confidence", kpis["_meta"]["data_confidence"])
+        parsed.setdefault("verdict", "AT_RISK")
+        parsed.setdefault("headline", "")
+        parsed.setdefault("critical_blocker", "")
+        parsed.setdefault("impact_summary", "execution")
+        parsed.setdefault("data_confidence_note", "")
+        parsed.setdefault("key_drivers", [])
+        parsed.setdefault("required_actions", [])
+
+        # Enforce list length caps
+        parsed["key_drivers"] = list(parsed["key_drivers"])[:3]
+        parsed["required_actions"] = list(parsed["required_actions"])[:3]
+
+        # Reject pathological output
+        if not parsed["required_actions"]:
             return None
-
-        # Merge with raw facts so deterministic numbers stay correct
-        # even if Claude reformats them: numeric fields trust the facts,
-        # text fields trust Claude. This avoids hallucinated EAC numbers
-        # while keeping the AI's qualitative judgement.
-        parsed["financial"] = {**parsed.get("financial", {}), **facts["financial"]}
-        # Keep the deterministic counts in data_quality, allow Claude to
-        # add the risk_level narrative and suggested_matches enrichment
-        dq = parsed.get("data_quality", {})
-        dq["uncategorized_count"] = facts["data_quality"]["uncategorized_count"]
-        dq["unassigned_count"] = facts["data_quality"]["unassigned_count"]
-        if not dq.get("suggested_matches"):
-            dq["suggested_matches"] = facts["data_quality"]["suggested_matches"]
-        parsed["data_quality"] = dq
-
-        # Schedule: trust the contract list we collected, let Claude
-        # synthesize the discipline_delays narrative if it provided one
-        parsed["schedule"]["delayed_contracts"] = len(facts["schedule"]["overdue"])
-        parsed["schedule"]["total_contracts"] = facts["schedule"]["total_contracts"]
-        parsed["schedule"]["total_delay_days"] = facts["schedule"]["total_delay_days"]
-        # Map the overdue list to the CriticalDelay shape if Claude
-        # didn't already produce it
-        if not parsed["schedule"].get("critical_delays"):
-            parsed["schedule"]["critical_delays"] = facts["schedule"]["overdue"][:5]
-        # discipline_delays
-        if not parsed["schedule"].get("discipline_delays"):
-            parsed["schedule"]["discipline_delays"] = [
-                {"discipline": k, **v}
-                for k, v in facts["schedule"]["by_discipline"].items()
-            ]
-
-        # Productivity: bring back the headcount/man_hours from facts
-        prod = parsed.get("productivity", {})
-        prod["headcount"] = facts["productivity"]["headcount"]
-        prod["man_hours"] = facts["productivity"]["man_hours"]
-        parsed["productivity"] = prod
-
         return parsed
     except Exception:
-        # Logging is the caller's responsibility; we never raise so the
-        # rule fallback can still serve the page.
         return None
 
 
-def _build_prompt(facts: dict[str, Any], lang_name: str) -> str:
-    """Compose the system+user prompt for Claude.
-
-    The output schema mirrors the 6 sections defined by the product
-    owner. We force Claude into a JSON envelope so the parser stays
-    deterministic.
-    """
-    return (
-        "You are an advanced project-control, finance and risk-analysis "
-        "AI for large-scale construction projects.\n"
-        "Your goal: analyse the supplied project data and help managers "
-        "make fast, accurate decisions. Back claims with the supplied "
-        f"numbers. Write ALL output text in {lang_name} regardless of "
-        "the language of the data. Proper nouns (company names, people, "
-        "project names) may stay in their original script.\n\n"
-        "Facts:\n"
-        f"```json\n{json.dumps(facts, ensure_ascii=False, indent=2, default=str)}\n```\n\n"
-        "Return ONLY a JSON object matching this exact shape, no prose around it:\n"
-        "{\n"
-        '  "schedule": {\n'
-        '    "delayed_contracts": <int>,\n'
-        '    "total_contracts": <int>,\n'
-        '    "critical_delays": [ { "subcontractor":"...", "contract_id":<int>, "days":<int>, "reason":"..." } ],\n'
-        '    "discipline_delays": [ { "discipline":"...", "delayed_count":<int>, "delay_days":<int> } ],\n'
-        '    "total_delay_days": <int>\n'
-        '  },\n'
-        '  "data_quality": {\n'
-        '    "uncategorized_count": <int>,\n'
-        '    "unassigned_count": <int>,\n'
-        '    "suggested_matches": [ { "entry_id":<int|null>, "description":"...", "suggested_target":"...", "confidence":<0..1> } ],\n'
-        '    "risk_level": "LOW" | "MEDIUM" | "HIGH"\n'
-        '  },\n'
-        '  "financial": {\n'
-        '    "progress_pct": <float>, "budget_used_pct": <float>,\n'
-        '    "bac": <float>, "ac": <float>, "eac": <float>, "variance": <float>,\n'
-        '    "status": "OVER_BUDGET" | "ON_TRACK" | "UNDER_BUDGET" | "UNKNOWN"\n'
-        '  },\n'
-        '  "productivity": {\n'
-        '    "headcount": <int>, "man_hours": <float>,\n'
-        '    "productivity": <float|null>, "deviation_pct": <float|null>,\n'
-        '    "status": "GOOD" | "AVERAGE" | "LOW" | "UNKNOWN"\n'
-        '  },\n'
-        '  "risk": {\n'
-        '    "overall_risk": "LOW" | "MEDIUM" | "HIGH",\n'
-        '    "predicted_delay_days": <int>,\n'
-        '    "top_risks": [ { "title":"...", "impact":"...", "cause":"..." } ]\n'
-        '  },\n'
-        '  "executive": {\n'
-        '    "project_status": "GOOD" | "WARNING" | "CRITICAL",\n'
-        '    "biggest_problem": "...",\n'
-        '    "financial_status": "...",\n'
-        '    "schedule_status": "...",\n'
-        '    "urgent_action": "...",\n'
-        '    "summary": "≤4 sentences, factual"\n'
-        '  }\n'
-        "}\n"
-        "When a metric cannot be computed from the data, set its numeric "
-        "value to 0 (or null where the schema allows) and mention the "
-        "estimation status in the narrative fields. Do not invent "
-        "subcontractor names or contract numbers.\n"
-    )
-
-
 def _extract_json_block(raw: str) -> str:
-    """Strip markdown fences and grab the first JSON object."""
     raw = raw.strip()
-    # ```json ... ``` fence
     fence = re.search(r"```(?:json)?\s*(.*?)\s*```", raw, flags=re.DOTALL)
     if fence:
         raw = fence.group(1)
-    # find the first { and matching last }
     first = raw.find("{")
     last = raw.rfind("}")
     if first >= 0 and last > first:
         return raw[first : last + 1]
     return raw or "{}"
-
-
-# =============================================================================
-# Rule-based fallback (no LLM)
-# =============================================================================
-
-
-def _rule_analysis(facts: dict[str, Any]) -> dict[str, Any]:
-    """Produce a serviceable analysis without calling Claude.
-
-    The number-only fields come straight from facts. Narrative fields
-    use small phrase templates so the page still feels populated.
-    """
-    sched = facts["schedule"]
-    dq = facts["data_quality"]
-    fin = facts["financial"]
-    prod = facts["productivity"]
-
-    # ---- Risk synthesis ----
-    score = 0
-    if sched["total_delay_days"] > 30:
-        score += 2
-    elif sched["total_delay_days"] > 0:
-        score += 1
-    if fin["status"] == "OVER_BUDGET":
-        score += 2
-    elif fin["budget_used_pct"] > 90:
-        score += 1
-    if dq["risk_level"] == "HIGH":
-        score += 1
-
-    if score >= 3:
-        overall_risk = "HIGH"
-        project_status = "CRITICAL"
-    elif score >= 1:
-        overall_risk = "MEDIUM"
-        project_status = "WARNING"
-    else:
-        overall_risk = "LOW"
-        project_status = "GOOD"
-
-    top_risks: list[dict[str, str]] = []
-    if sched["total_delay_days"] > 0:
-        top_risks.append({
-            "title": f"Schedule slip ({sched['total_delay_days']} days)",
-            "impact": f"{len(sched['overdue'])} contracts past due",
-            "cause": "Overdue subcontractor deliveries",
-        })
-    if fin["status"] == "OVER_BUDGET":
-        top_risks.append({
-            "title": "Budget overrun trending",
-            "impact": f"EAC {fin['eac']:,.0f} vs BAC {fin['bac']:,.0f}",
-            "cause": f"CPI {fin['cpi']:.2f} below 1.0",
-        })
-    if dq["risk_level"] in ("MEDIUM", "HIGH"):
-        top_risks.append({
-            "title": "Data quality gaps",
-            "impact": f"{dq['uncategorized_count']} uncategorized, {dq['unassigned_count']} unassigned",
-            "cause": "Imported ledger entries missing budget code / subcontractor link",
-        })
-
-    # ---- Productivity stub ----
-    prod_status = "UNKNOWN"
-    if prod["headcount"] > 0 and prod["man_hours"] > 0:
-        prod_status = "AVERAGE"
-
-    # ---- Executive summary text ----
-    summary_lines = []
-    summary_lines.append(
-        f"Project is at {fin['progress_pct']:.0f}% completion with "
-        f"{fin['budget_used_pct']:.0f}% of budget consumed."
-    )
-    if sched["total_delay_days"] > 0:
-        summary_lines.append(
-            f"{len(sched['overdue'])} contracts are overdue by a combined "
-            f"{sched['total_delay_days']} days."
-        )
-    if fin["status"] == "OVER_BUDGET":
-        summary_lines.append("Forecast indicates a budget overrun.")
-    elif fin["status"] == "ON_TRACK":
-        summary_lines.append("Spend is tracking the plan within ±5%.")
-    if dq["risk_level"] != "LOW":
-        summary_lines.append(
-            f"{dq['uncategorized_count'] + dq['unassigned_count']} ledger rows need cleanup."
-        )
-
-    biggest_problem = "No critical issues detected."
-    urgent_action = "Continue monitoring."
-    if top_risks:
-        biggest_problem = top_risks[0]["title"]
-        urgent_action = (
-            "Review overdue contracts and re-baseline schedule"
-            if "Schedule" in top_risks[0]["title"]
-            else "Investigate cost-performance gap"
-            if "Budget" in top_risks[0]["title"]
-            else "Assign uncategorized ledger rows"
-        )
-
-    return {
-        "schedule": {
-            "delayed_contracts": len(sched["overdue"]),
-            "total_contracts": sched["total_contracts"],
-            "critical_delays": sched["overdue"][:5],
-            "discipline_delays": [
-                {"discipline": k, **v} for k, v in sched["by_discipline"].items()
-            ],
-            "total_delay_days": int(sched["total_delay_days"]),
-        },
-        "data_quality": {
-            "uncategorized_count": int(dq["uncategorized_count"]),
-            "unassigned_count": int(dq["unassigned_count"]),
-            "suggested_matches": dq["suggested_matches"],
-            "risk_level": dq["risk_level"],
-        },
-        "financial": {
-            "progress_pct": fin["progress_pct"],
-            "budget_used_pct": fin["budget_used_pct"],
-            "bac": fin["bac"],
-            "ac": fin["ac"],
-            "eac": fin["eac"],
-            "variance": fin["variance"],
-            "status": fin["status"],
-        },
-        "productivity": {
-            "headcount": int(prod["headcount"]),
-            "man_hours": float(prod["man_hours"]),
-            "productivity": None,
-            "deviation_pct": None,
-            "status": prod_status,
-        },
-        "risk": {
-            "overall_risk": overall_risk,
-            "predicted_delay_days": int(sched["total_delay_days"] * 1.2),
-            "top_risks": top_risks[:3],
-        },
-        "executive": {
-            "project_status": project_status,
-            "biggest_problem": biggest_problem,
-            "financial_status": fin["status"].replace("_", " ").title(),
-            "schedule_status": (
-                f"{len(sched['overdue'])} contracts late"
-                if sched["overdue"]
-                else "All contracts on schedule"
-            ),
-            "urgent_action": urgent_action,
-            "summary": " ".join(summary_lines),
-        },
-    }

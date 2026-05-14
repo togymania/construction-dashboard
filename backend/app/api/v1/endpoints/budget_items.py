@@ -329,9 +329,19 @@ async def get_budget_summary(
         if row[0]
     }
 
+    # Kullanıcı bir harcamaya item-level cost_code ("3", "29"...) yerine
+    # category-level slug ("bina", "yollar"...) atayabiliyor.
+    # İkinci eşleme: category slug → category_id.
+    slug_rows = (await db.execute(select(BudgetCategory.slug, BudgetCategory.id))).all()
+    slug_to_cat: dict[str, int] = {
+        (row[0] or "").strip().lower(): row[1]
+        for row in slug_rows
+        if row[0]
+    }
+
     spent_by_cat: dict[int, Decimal] = {}
     for code, amt in ledger_by_code.items():
-        cat_id = cost_code_to_cat.get(code)
+        cat_id = cost_code_to_cat.get(code) or slug_to_cat.get(code)
         if cat_id is None:
             continue
         spent_by_cat[cat_id] = spent_by_cat.get(cat_id, Decimal("0")) + amt
@@ -928,4 +938,21 @@ async def import_cmi_monart(
         deleted_count=deleted_count,
         errors=errors,
         warnings=warnings,
+    )
+) + imported,
+                deleted_count=0,
+                errors=errors + [BudgetImportRowError(
+                    row=0, reason="Final commit failed",
+                )],
+                warnings=warnings,
+            )
+
+    return BudgetImportResult(
+        imported_count=imported,
+        skipped_count=len(errors) + len(warnings),
+        deleted_count=deleted_count,
+        errors=errors,
+        warnings=warnings,
+    )
+nings,
     )

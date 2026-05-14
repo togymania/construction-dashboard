@@ -1,163 +1,73 @@
-"""Pydantic schemas for the AI Project Analysis endpoint.
+"""Pydantic schemas for the AI Project Analysis endpoint (v2).
 
-A single AI-generated report that synthesizes all project signals
-(schedule, data quality, financial, productivity, risk) into a
-structured executive briefing. Mirrors the 6-section prompt template
-the user gave us; each section is a small object so the frontend can
-render colored cards cleanly without re-parsing free-form text.
+The v2 framework replaces the descriptive 6-section dashboard with an
+executive director model: 8 compact KPIs + a single decisive verdict
+that tells the PM (a) can the project finish on time, (b) what is
+blocking it, (c) is the data trustworthy, (d) what actions are
+required RIGHT NOW.
+
+The endpoint URL and response_model name (``ProjectAIAnalysis``) stay
+the same so the frontend client stays small; the *shape* is what
+changed.
 """
 from __future__ import annotations
 
 from datetime import datetime
-from decimal import Decimal
 from typing import Literal
 
 from pydantic import BaseModel, Field
 
 
-# ---------------------------------------------------------------------------
-# 🔴  Section 1 — Subcontractor & Schedule
-# ---------------------------------------------------------------------------
+KPIStatusLevel = Literal["ok", "watch", "critical", "unknown"]
 
 
-class CriticalDelay(BaseModel):
-    """A single overdue / critical contract line for the schedule card."""
+class KPIStatus(BaseModel):
+    """One of the 8 compact KPI tiles rendered in the frontend grid."""
 
-    subcontractor: str
-    contract_id: int | None = None
-    days: int = Field(0, description="Days overdue (positive = late)")
-    reason: str = ""
-
-
-class DisciplineDelay(BaseModel):
-    discipline: str
-    delayed_count: int = 0
-    delay_days: int = 0
-
-
-class ScheduleSection(BaseModel):
-    delayed_contracts: int = 0
-    total_contracts: int = 0
-    critical_delays: list[CriticalDelay] = []
-    discipline_delays: list[DisciplineDelay] = []
-    total_delay_days: int = 0
+    key: str = Field(
+        ...,
+        description=(
+            "Stable identifier (schedule_health, projected_delay, ...). "
+            "Frontend uses this to bind a stable i18n label and icon."
+        ),
+    )
+    value: str = Field(
+        "",
+        description="Display-ready value (already formatted: '14 d', '78 %').",
+    )
+    status: KPIStatusLevel = "unknown"
+    label: str = ""  # English source label; frontend can override via i18n
+    detail: str = ""  # one short sentence explaining the value
 
 
-# ---------------------------------------------------------------------------
-# 🟠  Section 2 — Data Quality
-# ---------------------------------------------------------------------------
+VerdictLevel = Literal["ON_TRACK", "AT_RISK", "CRITICAL", "UNKNOWN"]
+DataConfidence = Literal["HIGH", "MEDIUM", "LOW"]
 
 
-class SuggestedMatch(BaseModel):
-    """A proposed link for an unassigned/uncategorized record."""
+class AIVerdict(BaseModel):
+    """The executive verdict block rendered above the KPI grid."""
 
-    entry_id: int | None = None
-    description: str = ""
-    suggested_target: str = ""  # e.g. subcontractor name or category
-    confidence: float = Field(0.0, ge=0.0, le=1.0)
-
-
-DataQualityRisk = Literal["LOW", "MEDIUM", "HIGH"]
-
-
-class DataQualitySection(BaseModel):
-    uncategorized_count: int = 0
-    unassigned_count: int = 0
-    suggested_matches: list[SuggestedMatch] = []
-    risk_level: DataQualityRisk = "LOW"
-
-
-# ---------------------------------------------------------------------------
-# 🟡  Section 3 — Financial (EAC)
-# ---------------------------------------------------------------------------
-
-
-FinancialStatus = Literal["OVER_BUDGET", "ON_TRACK", "UNDER_BUDGET", "UNKNOWN"]
-
-
-class FinancialSection(BaseModel):
-    progress_pct: float = 0.0
-    budget_used_pct: float = 0.0
-    bac: Decimal = Decimal("0")  # Budget at completion
-    ac: Decimal = Decimal("0")  # Actual cost to date
-    eac: Decimal = Decimal("0")  # Estimate at completion
-    variance: Decimal = Decimal("0")  # BAC - EAC (positive = under budget)
-    status: FinancialStatus = "UNKNOWN"
-
-
-# ---------------------------------------------------------------------------
-# 🟢  Section 4 — Workforce / Productivity
-# ---------------------------------------------------------------------------
-
-
-ProductivityStatus = Literal["GOOD", "AVERAGE", "LOW", "UNKNOWN"]
-
-
-class ProductivitySection(BaseModel):
-    headcount: int = 0
-    man_hours: float = 0.0
-    # Productivity is "output / man-hour". We don't yet track production
-    # units (m²/m³) so this is often estimated by the LLM. The number
-    # field stays optional so the card can render either the value or
-    # an "—" placeholder cleanly.
-    productivity: float | None = None
-    deviation_pct: float | None = None
-    status: ProductivityStatus = "UNKNOWN"
-
-
-# ---------------------------------------------------------------------------
-# 🔵  Section 5 — Risk Analysis & Forecast
-# ---------------------------------------------------------------------------
-
-
-RiskLevel = Literal["LOW", "MEDIUM", "HIGH"]
-
-
-class TopRisk(BaseModel):
-    title: str
-    impact: str = ""
-    cause: str = ""
-
-
-class RiskSection(BaseModel):
-    overall_risk: RiskLevel = "LOW"
-    predicted_delay_days: int = 0
-    top_risks: list[TopRisk] = []
-
-
-# ---------------------------------------------------------------------------
-# 🧠  Section 6 — Executive Summary
-# ---------------------------------------------------------------------------
-
-
-ProjectStatus = Literal["GOOD", "WARNING", "CRITICAL"]
-
-
-class ExecutiveSection(BaseModel):
-    project_status: ProjectStatus = "GOOD"
-    biggest_problem: str = ""
-    financial_status: str = ""
-    schedule_status: str = ""
-    urgent_action: str = ""
-    summary: str = Field("", description="≤4 sentence top-line for an executive")
-
-
-# ---------------------------------------------------------------------------
-# Full payload
-# ---------------------------------------------------------------------------
+    verdict: VerdictLevel = "UNKNOWN"
+    headline: str = ""
+    key_drivers: list[str] = Field(default_factory=list, max_length=3)
+    critical_blocker: str = ""
+    impact_delay_days: int = 0
+    impact_summary: str = ""
+    data_confidence: DataConfidence = "MEDIUM"
+    data_confidence_note: str = ""
+    required_actions: list[str] = Field(default_factory=list, max_length=3)
 
 
 class ProjectAIAnalysis(BaseModel):
-    """The full 6-section AI analysis returned to the frontend."""
+    """v2 executive AI director payload."""
 
     project_id: int
     generated_at: datetime
     lang: Literal["EN", "TR"] = "EN"
     source: Literal["llm", "rule"] = "rule"
 
-    schedule: ScheduleSection
-    data_quality: DataQualitySection
-    financial: FinancialSection
-    productivity: ProductivitySection
-    risk: RiskSection
-    executive: ExecutiveSection
+    kpis: list[KPIStatus] = Field(default_factory=list)
+    verdict: AIVerdict
+
+
+ProjectAIAnalysisV2 = ProjectAIAnalysis

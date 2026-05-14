@@ -5,13 +5,10 @@ import { useParams } from "next/navigation";
 import {
   Sparkles,
   RefreshCw,
-  CalendarClock,
-  Database,
-  Wallet,
-  Users,
-  ShieldAlert,
-  Brain,
   AlertCircle,
+  CheckCircle2,
+  AlertTriangle,
+  XCircle,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -26,52 +23,74 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { api, ApiError } from "@/lib/api-client";
 import { useT } from "@/lib/i18n/provider";
-import { formatRubCompact } from "@/lib/formatters";
-import type { ProjectAIAnalysis } from "@/types/project";
+import type {
+  ProjectAIAnalysis,
+  KPIStatus,
+  KPIStatusLevel,
+  VerdictLevel,
+  DataConfidence,
+} from "@/types/project";
 
 // ---------------------------------------------------------------------------
-// Small typed helpers used by all six cards
+// Visual helpers
 // ---------------------------------------------------------------------------
 
-type StatusTone = "good" | "warning" | "critical" | "neutral";
-
-function toneClass(tone: StatusTone): string {
-  switch (tone) {
-    case "good":
-      return "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-900";
-    case "warning":
-      return "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-900";
-    case "critical":
-      return "bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-900";
+function verdictTone(v: VerdictLevel): string {
+  switch (v) {
+    case "ON_TRACK":
+      return "bg-emerald-50 text-emerald-800 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-200 dark:border-emerald-900";
+    case "AT_RISK":
+      return "bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-950/40 dark:text-amber-200 dark:border-amber-900";
+    case "CRITICAL":
+      return "bg-rose-50 text-rose-800 border-rose-200 dark:bg-rose-950/40 dark:text-rose-200 dark:border-rose-900";
     default:
       return "bg-slate-50 text-slate-700 border-slate-200 dark:bg-slate-900/40 dark:text-slate-300 dark:border-slate-700";
   }
 }
 
-function riskTone(level: "LOW" | "MEDIUM" | "HIGH"): StatusTone {
-  if (level === "HIGH") return "critical";
-  if (level === "MEDIUM") return "warning";
-  return "good";
+function statusDotClass(s: KPIStatusLevel): string {
+  switch (s) {
+    case "ok":
+      return "bg-emerald-500";
+    case "watch":
+      return "bg-amber-500";
+    case "critical":
+      return "bg-rose-500";
+    default:
+      return "bg-slate-300 dark:bg-slate-600";
+  }
 }
 
-function financialTone(status: string): StatusTone {
-  if (status === "OVER_BUDGET") return "critical";
-  if (status === "UNDER_BUDGET") return "good";
-  if (status === "ON_TRACK") return "good";
-  return "neutral";
+function statusTextClass(s: KPIStatusLevel): string {
+  switch (s) {
+    case "ok":
+      return "text-emerald-700 dark:text-emerald-300";
+    case "watch":
+      return "text-amber-700 dark:text-amber-300";
+    case "critical":
+      return "text-rose-700 dark:text-rose-300";
+    default:
+      return "text-muted-foreground";
+  }
 }
 
-function executiveTone(status: string): StatusTone {
-  if (status === "CRITICAL") return "critical";
-  if (status === "WARNING") return "warning";
-  if (status === "GOOD") return "good";
-  return "neutral";
+function confidenceTone(c: DataConfidence): string {
+  switch (c) {
+    case "HIGH":
+      return "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300";
+    case "MEDIUM":
+      return "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300";
+    default:
+      return "bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/40 dark:text-rose-300";
+  }
 }
 
-function fmtMoney(value: string | number): string {
-  const n = typeof value === "string" ? parseFloat(value) : value;
-  if (!isFinite(n)) return "—";
-  return formatRubCompact(n);
+function VerdictIcon({ v }: { v: VerdictLevel }) {
+  const cls = "h-7 w-7 shrink-0";
+  if (v === "ON_TRACK") return <CheckCircle2 className={cls + " text-emerald-600"} />;
+  if (v === "AT_RISK") return <AlertTriangle className={cls + " text-amber-600"} />;
+  if (v === "CRITICAL") return <XCircle className={cls + " text-rose-600"} />;
+  return <AlertCircle className={cls + " text-slate-500"} />;
 }
 
 // ---------------------------------------------------------------------------
@@ -96,8 +115,7 @@ export default function ProjectAIAnalysisPage() {
       const data = await api.projects.aiAnalysis(projectId, force);
       setAnalysis(data);
     } catch (e) {
-      const msg =
-        e instanceof ApiError ? e.message : "Failed to load analysis";
+      const msg = e instanceof ApiError ? e.message : t("aiV2.errorLoad");
       setError(msg);
       if (force) toast.error(msg);
     } finally {
@@ -108,19 +126,12 @@ export default function ProjectAIAnalysisPage() {
 
   useEffect(() => {
     if (projectId > 0) load(false);
-    // Re-load when the UI language flips so the X-User-Lang header
-    // change is reflected in a fresh narrative.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId, locale]);
 
   return (
     <div className="space-y-6">
       <PageHeader
-        title={t("aiAnalysis.title") || "AI Project Analysis"}
-        subtitle={
-          t("aiAnalysis.subtitle") ||
-          "Schedule, finance, risk and productivity synthesized by AI"
-        }
         source={analysis?.source}
         generatedAt={analysis?.generated_at}
         onRefresh={() => load(true)}
@@ -132,38 +143,33 @@ export default function ProjectAIAnalysisPage() {
       ) : error ? (
         <ErrorCard message={error} onRetry={() => load(false)} />
       ) : analysis ? (
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-          <ScheduleCard a={analysis} />
-          <DataQualityCard a={analysis} />
-          <FinancialCard a={analysis} />
-          <ProductivityCard a={analysis} />
-          <RiskCard a={analysis} />
-          <ExecutiveCard a={analysis} className="md:col-span-2 xl:col-span-3" />
-        </div>
+        <>
+          <VerdictHero v={analysis.verdict} />
+          <DriversRow v={analysis.verdict} />
+          <ConfidenceActions v={analysis.verdict} />
+          <KPIGrid kpis={analysis.kpis} />
+        </>
       ) : null}
     </div>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Page header (title + refresh + source badge)
+// Header
 // ---------------------------------------------------------------------------
 
 function PageHeader({
-  title,
-  subtitle,
   source,
   generatedAt,
   onRefresh,
   refreshing,
 }: {
-  title: string;
-  subtitle: string;
   source: "llm" | "rule" | undefined;
   generatedAt: string | undefined;
   onRefresh: () => void;
   refreshing: boolean;
 }) {
+  const { t } = useT();
   return (
     <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
       <div className="flex items-center gap-3">
@@ -171,14 +177,18 @@ function PageHeader({
           <Sparkles className="h-5 w-5" />
         </div>
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
-          <p className="text-sm text-muted-foreground">{subtitle}</p>
+          <h1 className="text-2xl font-semibold tracking-tight">
+            {t("aiV2.title")}
+          </h1>
+          <p className="text-sm text-muted-foreground">
+            {t("aiV2.subtitle")}
+          </p>
         </div>
       </div>
       <div className="flex items-center gap-2">
         {source ? (
           <Badge variant={source === "llm" ? "default" : "secondary"}>
-            {source === "llm" ? "AI" : "Rule-based"}
+            {source === "llm" ? "AI" : t("aiV2.ruleBased")}
           </Badge>
         ) : null}
         {generatedAt ? (
@@ -195,7 +205,7 @@ function PageHeader({
           <RefreshCw
             className={"mr-2 h-4 w-4 " + (refreshing ? "animate-spin" : "")}
           />
-          {refreshing ? "Working…" : "Refresh"}
+          {refreshing ? t("aiV2.working") : t("aiV2.refresh")}
         </Button>
       </div>
     </div>
@@ -203,367 +213,236 @@ function PageHeader({
 }
 
 // ---------------------------------------------------------------------------
-// Cards
+// Verdict hero
 // ---------------------------------------------------------------------------
 
-function ScheduleCard({ a }: { a: ProjectAIAnalysis }) {
-  const s = a.schedule;
-  const tone: StatusTone = s.delayed_contracts === 0 ? "good" : "critical";
+function VerdictHero({ v }: { v: ProjectAIAnalysis["verdict"] }) {
+  const { t } = useT();
+  const tone = verdictTone(v.verdict);
+  const verdictLabel = t(
+    "aiV2.verdict." + v.verdict
+  ) || v.verdict;
+
   return (
-    <Card>
-      <CardHeader className="flex flex-row items-center justify-between pb-2">
-        <CardTitle className="flex items-center gap-2 text-base">
-          <span className="text-rose-500">🔴</span>
-          <CalendarClock className="h-4 w-4" />
-          Subcontractor & Schedule
-        </CardTitle>
-        <Badge variant="outline" className={toneClass(tone)}>
-          {s.delayed_contracts}/{s.total_contracts} delayed
-        </Badge>
-      </CardHeader>
-      <CardContent className="space-y-3 text-sm">
-        <div className="flex justify-between">
-          <span className="text-muted-foreground">Total delay</span>
-          <span className="font-medium">{s.total_delay_days} days</span>
+    <Card className={"border-2 " + tone}>
+      <CardContent className="flex items-start gap-4 p-6">
+        <VerdictIcon v={v.verdict} />
+        <div className="space-y-1">
+          <div className="text-xs font-medium uppercase tracking-wider opacity-70">
+            {t("aiV2.verdictLabel")}
+          </div>
+          <div className="text-3xl font-bold tracking-tight">
+            {verdictLabel}
+          </div>
+          {v.headline ? (
+            <p className="text-sm leading-relaxed opacity-90">{v.headline}</p>
+          ) : null}
         </div>
-        {s.critical_delays.length > 0 ? (
-          <div>
-            <div className="mb-1 text-xs font-medium text-muted-foreground">
-              Critical
-            </div>
-            <ul className="space-y-1">
-              {s.critical_delays.slice(0, 4).map((d, i) => (
-                <li key={i} className="flex items-start gap-2 text-xs">
-                  <span className="mt-[2px] font-mono text-rose-600">
-                    +{d.days}d
-                  </span>
-                  <div>
-                    <div className="font-medium">{d.subcontractor}</div>
-                    {d.reason ? (
-                      <div className="text-muted-foreground">{d.reason}</div>
-                    ) : null}
-                  </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Drivers / Blocker / Impact row
+// ---------------------------------------------------------------------------
+
+function DriversRow({ v }: { v: ProjectAIAnalysis["verdict"] }) {
+  const { t } = useT();
+  const impactType = v.impact_summary
+    ? t("aiV2.impactType." + v.impact_summary) || v.impact_summary
+    : "—";
+
+  return (
+    <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm font-medium text-muted-foreground">
+            {t("aiV2.keyDrivers")}
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="pt-0">
+          {v.key_drivers.length > 0 ? (
+            <ul className="space-y-1.5 text-sm">
+              {v.key_drivers.map((d, i) => (
+                <li key={i} className="flex gap-2">
+                  <span className="text-muted-foreground">•</span>
+                  <span>{d}</span>
                 </li>
               ))}
             </ul>
-          </div>
-        ) : null}
-        {s.discipline_delays.length > 0 ? (
+          ) : (
+            <p className="text-sm text-muted-foreground">—</p>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm font-medium text-muted-foreground">
+            {t("aiV2.criticalBlocker")}
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="pt-0">
+          <p className="text-sm leading-relaxed">
+            {v.critical_blocker || (
+              <span className="text-muted-foreground">
+                {t("aiV2.noBlocker")}
+              </span>
+            )}
+          </p>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm font-medium text-muted-foreground">
+            {t("aiV2.impact")}
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="pt-0 space-y-2">
           <div>
-            <div className="mb-1 text-xs font-medium text-muted-foreground">
-              By discipline
+            <div className="text-xs text-muted-foreground">
+              {t("aiV2.delayDays")}
             </div>
-            <div className="flex flex-wrap gap-1">
-              {s.discipline_delays.map((d, i) => (
-                <Badge key={i} variant="secondary" className="text-xs">
-                  {d.discipline}: {d.delayed_count} ({d.delay_days}d)
-                </Badge>
-              ))}
+            <div className="text-2xl font-semibold">
+              {v.impact_delay_days > 0 ? "+" : ""}
+              {v.impact_delay_days}{" "}
+              <span className="text-sm font-normal text-muted-foreground">
+                {t("aiV2.days")}
+              </span>
             </div>
           </div>
-        ) : null}
-      </CardContent>
-    </Card>
-  );
-}
-
-function DataQualityCard({ a }: { a: ProjectAIAnalysis }) {
-  const dq = a.data_quality;
-  const tone = riskTone(dq.risk_level);
-  return (
-    <Card>
-      <CardHeader className="flex flex-row items-center justify-between pb-2">
-        <CardTitle className="flex items-center gap-2 text-base">
-          <span className="text-amber-500">🟠</span>
-          <Database className="h-4 w-4" />
-          Data Quality
-        </CardTitle>
-        <Badge variant="outline" className={toneClass(tone)}>
-          {dq.risk_level}
-        </Badge>
-      </CardHeader>
-      <CardContent className="space-y-3 text-sm">
-        <div className="grid grid-cols-2 gap-2">
-          <div className="rounded-md border bg-card p-2">
-            <div className="text-xs text-muted-foreground">Uncategorized</div>
-            <div className="text-xl font-semibold">{dq.uncategorized_count}</div>
-          </div>
-          <div className="rounded-md border bg-card p-2">
-            <div className="text-xs text-muted-foreground">Unassigned</div>
-            <div className="text-xl font-semibold">{dq.unassigned_count}</div>
-          </div>
-        </div>
-        {dq.suggested_matches.length > 0 ? (
           <div>
-            <div className="mb-1 text-xs font-medium text-muted-foreground">
-              Suggested matches
+            <div className="text-xs text-muted-foreground">
+              {t("aiV2.riskType")}
             </div>
-            <ul className="space-y-1">
-              {dq.suggested_matches.slice(0, 4).map((m, i) => (
-                <li
-                  key={i}
-                  className="flex items-center justify-between rounded border bg-card px-2 py-1 text-xs"
-                >
-                  <span className="truncate" title={m.description}>
-                    {m.description.slice(0, 40)}
-                    {m.description.length > 40 ? "…" : ""}
-                  </span>
-                  <span className="flex items-center gap-1">
-                    <span className="font-medium">{m.suggested_target}</span>
-                    <Badge variant="secondary" className="text-[10px]">
-                      {Math.round(m.confidence * 100)}%
-                    </Badge>
-                  </span>
-                </li>
-              ))}
-            </ul>
+            <div className="text-sm font-medium capitalize">{impactType}</div>
           </div>
-        ) : null}
-      </CardContent>
-    </Card>
-  );
-}
-
-function FinancialCard({ a }: { a: ProjectAIAnalysis }) {
-  const f = a.financial;
-  const tone = financialTone(f.status);
-  return (
-    <Card>
-      <CardHeader className="flex flex-row items-center justify-between pb-2">
-        <CardTitle className="flex items-center gap-2 text-base">
-          <span className="text-yellow-500">🟡</span>
-          <Wallet className="h-4 w-4" />
-          Financial (EAC)
-        </CardTitle>
-        <Badge variant="outline" className={toneClass(tone)}>
-          {f.status.replace("_", " ")}
-        </Badge>
-      </CardHeader>
-      <CardContent className="space-y-2 text-sm">
-        <Row label="Progress" value={`${f.progress_pct.toFixed(0)}%`} />
-        <Row label="Budget used" value={`${f.budget_used_pct.toFixed(0)}%`} />
-        <Row label="BAC (plan)" value={fmtMoney(f.bac)} />
-        <Row label="AC (spent)" value={fmtMoney(f.ac)} />
-        <Row
-          label="EAC (forecast)"
-          value={fmtMoney(f.eac)}
-          strong
-        />
-        <Row
-          label="Variance"
-          value={fmtMoney(f.variance)}
-          tone={
-            parseFloat(String(f.variance)) < 0 ? "critical" : "good"
-          }
-        />
-      </CardContent>
-    </Card>
-  );
-}
-
-function ProductivityCard({ a }: { a: ProjectAIAnalysis }) {
-  const p = a.productivity;
-  const tone: StatusTone =
-    p.status === "GOOD"
-      ? "good"
-      : p.status === "LOW"
-        ? "critical"
-        : p.status === "AVERAGE"
-          ? "warning"
-          : "neutral";
-  return (
-    <Card>
-      <CardHeader className="flex flex-row items-center justify-between pb-2">
-        <CardTitle className="flex items-center gap-2 text-base">
-          <span className="text-emerald-500">🟢</span>
-          <Users className="h-4 w-4" />
-          Workforce & Productivity
-        </CardTitle>
-        <Badge variant="outline" className={toneClass(tone)}>
-          {p.status}
-        </Badge>
-      </CardHeader>
-      <CardContent className="space-y-2 text-sm">
-        <Row label="Headcount" value={String(p.headcount)} />
-        <Row label="Man-hours" value={p.man_hours.toFixed(0)} />
-        <Row
-          label="Productivity"
-          value={p.productivity != null ? p.productivity.toFixed(2) : "—"}
-        />
-        <Row
-          label="Deviation"
-          value={
-            p.deviation_pct != null ? `${p.deviation_pct.toFixed(1)}%` : "—"
-          }
-        />
-      </CardContent>
-    </Card>
-  );
-}
-
-function RiskCard({ a }: { a: ProjectAIAnalysis }) {
-  const r = a.risk;
-  const tone = riskTone(r.overall_risk);
-  return (
-    <Card>
-      <CardHeader className="flex flex-row items-center justify-between pb-2">
-        <CardTitle className="flex items-center gap-2 text-base">
-          <span className="text-sky-500">🔵</span>
-          <ShieldAlert className="h-4 w-4" />
-          Risk Analysis
-        </CardTitle>
-        <Badge variant="outline" className={toneClass(tone)}>
-          {r.overall_risk}
-        </Badge>
-      </CardHeader>
-      <CardContent className="space-y-3 text-sm">
-        <Row
-          label="Predicted delay"
-          value={`+${r.predicted_delay_days} days`}
-        />
-        {r.top_risks.length > 0 ? (
-          <ol className="space-y-2">
-            {r.top_risks.map((risk, i) => (
-              <li
-                key={i}
-                className="rounded-md border bg-card p-2 text-xs"
-              >
-                <div className="font-medium">{i + 1}. {risk.title}</div>
-                {risk.impact ? (
-                  <div className="text-muted-foreground">
-                    <span className="font-medium">Impact: </span>
-                    {risk.impact}
-                  </div>
-                ) : null}
-                {risk.cause ? (
-                  <div className="text-muted-foreground">
-                    <span className="font-medium">Cause: </span>
-                    {risk.cause}
-                  </div>
-                ) : null}
-              </li>
-            ))}
-          </ol>
-        ) : (
-          <div className="text-xs text-muted-foreground">
-            No critical risks identified.
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
-function ExecutiveCard({
-  a,
-  className = "",
-}: {
-  a: ProjectAIAnalysis;
-  className?: string;
-}) {
-  const e = a.executive;
-  const tone = executiveTone(e.project_status);
-  return (
-    <Card className={className}>
-      <CardHeader className="flex flex-row items-center justify-between pb-2">
-        <CardTitle className="flex items-center gap-2 text-base">
-          <span className="text-violet-500">🧠</span>
-          <Brain className="h-4 w-4" />
-          Executive Summary
-        </CardTitle>
-        <Badge variant="outline" className={toneClass(tone)}>
-          {e.project_status}
-        </Badge>
-      </CardHeader>
-      <CardContent className="space-y-3 text-sm">
-        <p className="leading-relaxed">{e.summary}</p>
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-          <ExecRow label="Biggest problem" value={e.biggest_problem} />
-          <ExecRow label="Financial" value={e.financial_status} />
-          <ExecRow label="Schedule" value={e.schedule_status} />
-          <ExecRow label="Urgent action" value={e.urgent_action} accent />
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Small reusable bits
-// ---------------------------------------------------------------------------
-
-function Row({
-  label,
-  value,
-  strong,
-  tone,
-}: {
-  label: string;
-  value: string;
-  strong?: boolean;
-  tone?: StatusTone;
-}) {
-  const valueClass = tone
-    ? tone === "critical"
-      ? "text-rose-600 dark:text-rose-400"
-      : tone === "good"
-        ? "text-emerald-600 dark:text-emerald-400"
-        : ""
-    : "";
-  return (
-    <div className="flex justify-between">
-      <span className="text-muted-foreground">{label}</span>
-      <span
-        className={
-          (strong ? "font-semibold " : "font-medium ") + valueClass
-        }
-      >
-        {value}
-      </span>
+        </CardContent>
+      </Card>
     </div>
   );
 }
 
-function ExecRow({
-  label,
-  value,
-  accent,
-}: {
-  label: string;
-  value: string;
-  accent?: boolean;
-}) {
-  if (!value) return null;
+// ---------------------------------------------------------------------------
+// Confidence + Actions row
+// ---------------------------------------------------------------------------
+
+function ConfidenceActions({ v }: { v: ProjectAIAnalysis["verdict"] }) {
+  const { t } = useT();
+  const tone = confidenceTone(v.data_confidence);
+  const confLabel = t("aiV2.confidence." + v.data_confidence) || v.data_confidence;
+
   return (
-    <div
-      className={
-        "rounded-md border p-2 " +
-        (accent
-          ? "border-violet-200 bg-violet-50 dark:border-violet-900 dark:bg-violet-950/40"
-          : "bg-card")
-      }
-    >
-      <div className="text-xs font-medium text-muted-foreground">{label}</div>
-      <div className="text-sm">{value}</div>
+    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm font-medium text-muted-foreground">
+            {t("aiV2.dataConfidence")}
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="pt-0 space-y-2">
+          <Badge variant="outline" className={tone}>
+            {confLabel}
+          </Badge>
+          {v.data_confidence_note ? (
+            <p className="text-sm leading-relaxed text-muted-foreground">
+              {v.data_confidence_note}
+            </p>
+          ) : null}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm font-medium text-muted-foreground">
+            {t("aiV2.requiredActions")}
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="pt-0">
+          {v.required_actions.length > 0 ? (
+            <ol className="space-y-1.5 text-sm">
+              {v.required_actions.map((a, i) => (
+                <li key={i} className="flex gap-2">
+                  <span className="font-semibold text-muted-foreground">
+                    {i + 1}.
+                  </span>
+                  <span>{a}</span>
+                </li>
+              ))}
+            </ol>
+          ) : (
+            <p className="text-sm text-muted-foreground">—</p>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }
+
+// ---------------------------------------------------------------------------
+// KPI grid (8 tiles)
+// ---------------------------------------------------------------------------
+
+function KPIGrid({ kpis }: { kpis: KPIStatus[] }) {
+  const { t } = useT();
+  return (
+    <div>
+      <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+        {t("aiV2.kpiHeading")}
+      </h2>
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        {kpis.map((k) => (
+          <KPITile key={k.key} kpi={k} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function KPITile({ kpi }: { kpi: KPIStatus }) {
+  const { t } = useT();
+  const label = t("aiV2.kpi." + kpi.key) || kpi.label || kpi.key;
+  return (
+    <Card>
+      <CardContent className="space-y-1.5 p-4">
+        <div className="flex items-center gap-2">
+          <span className={"h-2 w-2 rounded-full " + statusDotClass(kpi.status)} />
+          <span className="text-xs font-medium text-muted-foreground line-clamp-1">
+            {label}
+          </span>
+        </div>
+        <div
+          className={
+            "text-xl font-semibold tabular-nums " + statusTextClass(kpi.status)
+          }
+        >
+          {kpi.value || "—"}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Loading + error
+// ---------------------------------------------------------------------------
 
 function LoadingSkeleton() {
   return (
-    <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-      {Array.from({ length: 6 }).map((_, i) => (
-        <Card key={i} className={i === 5 ? "md:col-span-2 xl:col-span-3" : ""}>
-          <CardHeader>
-            <Skeleton className="h-5 w-1/2" />
-          </CardHeader>
-          <CardContent className="space-y-2">
-            <Skeleton className="h-4 w-full" />
-            <Skeleton className="h-4 w-5/6" />
-            <Skeleton className="h-4 w-2/3" />
-          </CardContent>
-        </Card>
-      ))}
+    <div className="space-y-4">
+      <Skeleton className="h-28 w-full" />
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+        {Array.from({ length: 3 }).map((_, i) => (
+          <Skeleton key={i} className="h-32 w-full" />
+        ))}
+      </div>
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        {Array.from({ length: 8 }).map((_, i) => (
+          <Skeleton key={i} className="h-20 w-full" />
+        ))}
+      </div>
     </div>
   );
 }
@@ -575,16 +454,17 @@ function ErrorCard({
   message: string;
   onRetry: () => void;
 }) {
+  const { t } = useT();
   return (
     <Card>
       <CardContent className="flex flex-col items-center gap-3 p-8 text-center">
         <AlertCircle className="h-8 w-8 text-rose-500" />
         <div>
-          <div className="font-medium">Couldn&apos;t load the analysis</div>
+          <div className="font-medium">{t("aiV2.loadFailed")}</div>
           <div className="text-sm text-muted-foreground">{message}</div>
         </div>
         <Button onClick={onRetry} variant="outline" size="sm">
-          Try again
+          {t("aiV2.tryAgain")}
         </Button>
       </CardContent>
     </Card>

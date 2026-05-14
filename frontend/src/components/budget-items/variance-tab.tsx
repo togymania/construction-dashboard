@@ -34,6 +34,7 @@ import {
 } from "@/components/ui/table";
 import { api, ApiError } from "@/lib/api-client";
 import { formatRubCompact } from "@/lib/formatters";
+import { useT } from "@/lib/i18n/provider";
 import type {
   BudgetVarianceReport,
   BudgetItemVariance,
@@ -44,29 +45,31 @@ interface Props {
   projectId: number;
 }
 
-const SEVERITY_BADGE: Record<
+// Severity styles (color + icon). Labels are localized inside the component
+// via t() — keep this map style-only to avoid stale strings.
+const SEVERITY_STYLE: Record<
   VarianceSeverity,
-  { label: string; cls: string; icon: React.ComponentType<{ className?: string }> }
+  { cls: string; icon: React.ComponentType<{ className?: string }>; tKey: string }
 > = {
   ok: {
-    label: "On budget",
     cls: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30",
     icon: CheckCircle2,
+    tKey: "budget.filterOnBudget",
   },
   watch: {
-    label: "Watch",
     cls: "bg-blue-500/15 text-blue-700 dark:text-blue-400 border-blue-500/30",
     icon: TrendingUp,
+    tKey: "budget.filterWatch",
   },
   warn: {
-    label: "Near limit",
     cls: "bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30",
     icon: AlertTriangle,
+    tKey: "budget.filterNearLimit",
   },
   over: {
-    label: "Over budget",
     cls: "bg-rose-500/15 text-rose-700 dark:text-rose-400 border-rose-500/30",
     icon: AlertTriangle,
+    tKey: "budget.filterOverBudget",
   },
 };
 
@@ -74,6 +77,7 @@ type SortKey = "cost_code" | "description" | "planned" | "actual" | "variance" |
 type SortDir = "asc" | "desc";
 
 export function BudgetVarianceTab({ projectId }: Props) {
+  const { t } = useT();
   const [report, setReport] = useState<BudgetVarianceReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -173,11 +177,11 @@ export function BudgetVarianceTab({ projectId }: Props) {
     return (
       <Card>
         <CardContent className="py-8 text-center text-sm text-muted-foreground">
-          {error || "No variance data available."}
+          {error || t("budget.noVarianceData")}
           <div className="mt-3">
             <Button size="sm" variant="outline" onClick={() => load(true)}>
               <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
-              Retry
+              {t("budget.retry")}
             </Button>
           </div>
         </CardContent>
@@ -191,7 +195,7 @@ export function BudgetVarianceTab({ projectId }: Props) {
         ? "over"
         : "watch"
       : "ok";
-  const totalsCls = SEVERITY_BADGE[overallSeverity].cls;
+  const totalsCls = SEVERITY_STYLE[overallSeverity].cls;
 
   return (
     <div className="space-y-4">
@@ -201,25 +205,25 @@ export function BudgetVarianceTab({ projectId }: Props) {
           <div>
             <CardTitle className="text-base flex items-center gap-2">
               <Sparkles className="h-4 w-4 text-primary" />
-              Planned vs Actual
+              {t("budget.varianceTitle")}
             </CardTitle>
             <p className="text-xs text-muted-foreground mt-1">
-              {report.items.length} budget line(s) ·{" "}
-              {new Date(report.generated_at).toLocaleString()}
+              {t("budget.varianceLineCount", { n: report.items.length })} ·{" "}
+              {new Date(report.generated_at).toLocaleString("en-GB")}
             </p>
           </div>
           <Button size="sm" variant="outline" onClick={() => load(true)} disabled={refreshing}>
             <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${refreshing ? "animate-spin" : ""}`} />
-            Yenile
+            {t("budget.refresh")}
           </Button>
         </CardHeader>
         <CardContent>
           <div className="grid gap-3 grid-cols-2 md:grid-cols-4">
-            <KpiTile label="Planned" value={formatRubCompact(report.total_planned)} />
-            <KpiTile label="Committed" value={formatRubCompact(report.total_committed)} />
-            <KpiTile label="Actual (paid)" value={formatRubCompact(report.total_actual)} />
+            <KpiTile label={t("budget.kpiPlanned")} value={formatRubCompact(report.total_planned)} />
+            <KpiTile label={t("budget.kpiCommitted")} value={formatRubCompact(report.total_committed)} />
+            <KpiTile label={t("budget.kpiActual")} value={formatRubCompact(report.total_actual)} />
             <KpiTile
-              label="Variance"
+              label={t("budget.kpiVariance")}
               value={
                 (parseFloat(report.overall_variance) >= 0 ? "+" : "") +
                 formatRubCompact(report.overall_variance) +
@@ -237,7 +241,7 @@ export function BudgetVarianceTab({ projectId }: Props) {
       <div className="flex flex-wrap items-center gap-2">
         {(["all", "over", "warn", "watch", "ok"] as const).map((s) => {
           const isActive = filter === s;
-          const label = s === "all" ? "All" : SEVERITY_BADGE[s].label;
+          const label = s === "all" ? t("budget.filterAll") : t(SEVERITY_STYLE[s].tKey);
           return (
             <button
               key={s}
@@ -258,7 +262,7 @@ export function BudgetVarianceTab({ projectId }: Props) {
         <div className="relative w-64">
           <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
           <Input
-            placeholder="Cost code, description, category..."
+            placeholder={t("budget.searchPlaceholder")}
             className="pl-8"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
@@ -271,7 +275,7 @@ export function BudgetVarianceTab({ projectId }: Props) {
         <CardContent className="pt-6">
           {filtered.length === 0 ? (
             <div className="py-12 text-center text-sm text-muted-foreground">
-              No matching items.
+              {t("budget.noMatching")}
             </div>
           ) : (
             <Table>
@@ -279,7 +283,7 @@ export function BudgetVarianceTab({ projectId }: Props) {
                 <TableRow>
                   <TableHead className="w-[110px]">
                     <SortHeader
-                      label="Code"
+                      label={t("budget.colCode")}
                       active={sortKey === "cost_code"}
                       dir={sortDir}
                       onClick={() => handleSort("cost_code")}
@@ -287,26 +291,26 @@ export function BudgetVarianceTab({ projectId }: Props) {
                   </TableHead>
                   <TableHead>
                     <SortHeader
-                      label="Description"
+                      label={t("budget.colDescription")}
                       active={sortKey === "description"}
                       dir={sortDir}
                       onClick={() => handleSort("description")}
                     />
                   </TableHead>
-                  <TableHead className="w-[120px]">Category</TableHead>
+                  <TableHead className="w-[120px]">{t("budget.colCategory")}</TableHead>
                   <TableHead className="w-[110px] text-right">
                     <SortHeader
-                      label="Planned"
+                      label={t("budget.kpiPlanned")}
                       active={sortKey === "planned"}
                       dir={sortDir}
                       onClick={() => handleSort("planned")}
                       align="right"
                     />
                   </TableHead>
-                  <TableHead className="w-[110px] text-right">Committed</TableHead>
+                  <TableHead className="w-[110px] text-right">{t("budget.colCommitted")}</TableHead>
                   <TableHead className="w-[110px] text-right">
                     <SortHeader
-                      label="Actual"
+                      label={t("budget.actual")}
                       active={sortKey === "actual"}
                       dir={sortDir}
                       onClick={() => handleSort("actual")}
@@ -315,20 +319,21 @@ export function BudgetVarianceTab({ projectId }: Props) {
                   </TableHead>
                   <TableHead className="w-[120px] text-right">
                     <SortHeader
-                      label="Variance"
+                      label={t("budget.variance")}
                       active={sortKey === "variance"}
                       dir={sortDir}
                       onClick={() => handleSort("variance")}
                       align="right"
                     />
                   </TableHead>
-                  <TableHead className="w-[110px]">Status</TableHead>
+                  <TableHead className="w-[110px]">{t("budget.colStatus")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filtered.map((it) => {
-                  const sev = SEVERITY_BADGE[it.severity];
+                  const sev = SEVERITY_STYLE[it.severity];
                   const SevIcon = sev.icon;
+                  const sevLabel = t(sev.tKey);
                   const variance = parseFloat(it.variance);
                   return (
                     <TableRow key={it.id}>
@@ -341,7 +346,7 @@ export function BudgetVarianceTab({ projectId }: Props) {
                         </div>
                         {it.matched_expense_count > 0 && (
                           <div className="text-[10px] text-muted-foreground mt-0.5">
-                            {it.matched_expense_count} matched expense(s)
+                            {t("budget.matchedExpenses", { n: it.matched_expense_count })}
                           </div>
                         )}
                       </TableCell>
@@ -379,7 +384,7 @@ export function BudgetVarianceTab({ projectId }: Props) {
                       <TableCell>
                         <Badge variant="outline" className={`text-[10px] gap-1 ${sev.cls}`}>
                           <SevIcon className="h-3 w-3" />
-                          {sev.label}
+                          {sevLabel}
                         </Badge>
                       </TableCell>
                     </TableRow>
@@ -458,4 +463,3 @@ function SortHeader({
     </button>
   );
 }
-

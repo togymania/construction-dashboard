@@ -203,6 +203,7 @@ async def get_eac(
     from sqlalchemy import func
     from app.models.budget import BudgetItem
     from app.models.expense import Expense
+    from app.models.financial_summary import FinancialSummary
     from app.models.ledger_entry import LedgerEntry, LedgerEntryType
     from app.models.subcontractor import SubcontractorContract
 
@@ -217,19 +218,47 @@ async def get_eac(
     if bac == 0:
         bac = Decimal(project.budget_rub or 0)
 
-    ledger_ac = Decimal((await db.execute(
-        select(func.coalesce(func.sum(LedgerEntry.amount), 0))
-        .join(SubcontractorContract, SubcontractorContract.id == LedgerEntry.contract_id)
-        .where(
-            SubcontractorContract.project_id == project_id,
-            LedgerEntry.entry_type == LedgerEntryType.EXPENSE,
+    # AC (Actual Cost) — Finansal Özet (OZET) Toplam Gider'inden çekilir.
+    # OZET satırları varsa: her şirket için negatif kalemleri topla
+    # (firma_odemeleri, ucret_giderleri, vergi_odemeleri, banka_giderleri,
+    # diger_gelir_giderler eğer negatifse). gelir_vergisi + kdv sub-item'lar
+    # vergi_odemeleri içinde zaten — çift sayma yok. toplam roll-up'tır,
+    # dahil edilmez.
+    # OZET yoksa eski mantığa düş: ledger EXPENSE + Expense tablosu.
+    fs_rows = (
+        await db.execute(
+            select(FinancialSummary).where(FinancialSummary.project_id == project_id)
         )
-    )).scalar_one() or 0)
-    expense_ac = Decimal((await db.execute(
-        select(func.coalesce(func.sum(Expense.amount), 0))
-        .where(Expense.project_id == project_id)
-    )).scalar_one() or 0)
-    ac = ledger_ac + expense_ac
+    ).scalars().all()
+
+    if fs_rows:
+        PARENT_EXPENSE_FIELDS = (
+            "firma_odemeleri",
+            "ucret_giderleri",
+            "vergi_odemeleri",
+            "banka_giderleri",
+            "diger_gelir_giderler",
+        )
+        ac = Decimal(0)
+        for row in fs_rows:
+            for field in PARENT_EXPENSE_FIELDS:
+                val = getattr(row, field, None) or Decimal(0)
+                if val < 0:
+                    ac += -val  # absolute value
+    else:
+        ledger_ac = Decimal((await db.execute(
+            select(func.coalesce(func.sum(LedgerEntry.amount), 0))
+            .join(SubcontractorContract, SubcontractorContract.id == LedgerEntry.contract_id)
+            .where(
+                SubcontractorContract.project_id == project_id,
+                LedgerEntry.entry_type == LedgerEntryType.EXPENSE,
+            )
+        )).scalar_one() or 0)
+        expense_ac = Decimal((await db.execute(
+            select(func.coalesce(func.sum(Expense.amount), 0))
+            .where(Expense.project_id == project_id)
+        )).scalar_one() or 0)
+        ac = ledger_ac + expense_ac
 
     progress = float(project.progress_pct or 0)
     ev = bac * Decimal(progress / 100.0) if bac > 0 else Decimal(0)
@@ -312,6 +341,40 @@ _AI_ANALYSIS_KEY_OFFSET = 3_000_000
 @router.get(
     "/{project_id}/ai-analysis",
     response_model=ProjectAIAnalysis,
+    summary="Six-section AI project control & risk analysis",
+)
+async def get_ai_analysis(
+    project_id: int,
+    user: CurrentUser,
+    db: DBSession,
+    lang: UserLang,
+    force_refresh: bool = Query(False, description="Bypass cache and re-generate"),
+) -> ProjectAIAnalysis:
+    """Run the full schedule + data quality + finance + productivity +
+    risk + executive analysis for a project.
+
+    Cached for 15 minutes per (project, language) so demo refreshes feel
+    instant while the underlying Claude call is gated. Pass
+    ``force_refresh=true`` to re-run.
+    """
+    from app.services import insights_cache
+    from app.services.project_ai_analysis import build_ai_analysis
+
+    cache_key = (project_id + _AI_ANALYSIS_KEY_OFFSET) * 10 + (
+        1 if lang == "TR" else 0
+    )
+    if not force_refresh:
+        cached = insights_cache.get(cache_key)
+        if cached is not None:
+            return cached  # type: ignore[return-value]
+
+    analysis = await build_ai_analysis(db, project_id, lang=lang)
+    if analysis is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")
+
+    insights_cache.set(cache_key, analysis)  # type: ignore[arg-type]
+    return analysis
+lysis,
     summary="Six-section AI project control & risk analysis",
 )
 async def get_ai_analysis(
