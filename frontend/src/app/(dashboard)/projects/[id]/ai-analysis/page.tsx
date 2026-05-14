@@ -97,7 +97,7 @@ export default function ProjectAIAnalysisPage() {
       setAnalysis(data);
     } catch (e) {
       const msg =
-        e instanceof ApiError ? e.message : "Failed to load analysis";
+        e instanceof ApiError ? e.message : t("aiAnalysis.errorLoad");
       setError(msg);
       if (force) toast.error(msg);
     } finally {
@@ -164,6 +164,7 @@ function PageHeader({
   onRefresh: () => void;
   refreshing: boolean;
 }) {
+  const { t } = useT();
   return (
     <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
       <div className="flex items-center gap-3">
@@ -178,7 +179,7 @@ function PageHeader({
       <div className="flex items-center gap-2">
         {source ? (
           <Badge variant={source === "llm" ? "default" : "secondary"}>
-            {source === "llm" ? "AI" : "Rule-based"}
+            {source === "llm" ? "AI" : t("aiAnalysis.ruleBased")}
           </Badge>
         ) : null}
         {generatedAt ? (
@@ -195,7 +196,7 @@ function PageHeader({
           <RefreshCw
             className={"mr-2 h-4 w-4 " + (refreshing ? "animate-spin" : "")}
           />
-          {refreshing ? "Working…" : "Refresh"}
+          {refreshing ? t("aiAnalysis.working") : t("aiAnalysis.refresh")}
         </Button>
       </div>
     </div>
@@ -207,6 +208,7 @@ function PageHeader({
 // ---------------------------------------------------------------------------
 
 function ScheduleCard({ a }: { a: ProjectAIAnalysis }) {
+  const { t } = useT();
   const s = a.schedule;
   const tone: StatusTone = s.delayed_contracts === 0 ? "good" : "critical";
   return (
@@ -215,21 +217,21 @@ function ScheduleCard({ a }: { a: ProjectAIAnalysis }) {
         <CardTitle className="flex items-center gap-2 text-base">
           <span className="text-rose-500">🔴</span>
           <CalendarClock className="h-4 w-4" />
-          Subcontractor & Schedule
+          {t("aiAnalysis.cardSchedule")}
         </CardTitle>
         <Badge variant="outline" className={toneClass(tone)}>
-          {s.delayed_contracts}/{s.total_contracts} delayed
+          {s.delayed_contracts}/{s.total_contracts} {t("aiAnalysis.delayed")}
         </Badge>
       </CardHeader>
       <CardContent className="space-y-3 text-sm">
         <div className="flex justify-between">
-          <span className="text-muted-foreground">Total delay</span>
-          <span className="font-medium">{s.total_delay_days} days</span>
+          <span className="text-muted-foreground">{t("aiAnalysis.totalDelay")}</span>
+          <span className="font-medium">{s.total_delay_days} {t("aiAnalysis.days")}</span>
         </div>
         {s.critical_delays.length > 0 ? (
           <div>
             <div className="mb-1 text-xs font-medium text-muted-foreground">
-              Critical
+              {t("aiAnalysis.critical")}
             </div>
             <ul className="space-y-1">
               {s.critical_delays.slice(0, 4).map((d, i) => (
@@ -251,7 +253,7 @@ function ScheduleCard({ a }: { a: ProjectAIAnalysis }) {
         {s.discipline_delays.length > 0 ? (
           <div>
             <div className="mb-1 text-xs font-medium text-muted-foreground">
-              By discipline
+              {t("aiAnalysis.byDiscipline")}
             </div>
             <div className="flex flex-wrap gap-1">
               {s.discipline_delays.map((d, i) => (
@@ -268,6 +270,7 @@ function ScheduleCard({ a }: { a: ProjectAIAnalysis }) {
 }
 
 function DataQualityCard({ a }: { a: ProjectAIAnalysis }) {
+  const { t } = useT();
   const dq = a.data_quality;
   const tone = riskTone(dq.risk_level);
   return (
@@ -276,7 +279,7 @@ function DataQualityCard({ a }: { a: ProjectAIAnalysis }) {
         <CardTitle className="flex items-center gap-2 text-base">
           <span className="text-amber-500">🟠</span>
           <Database className="h-4 w-4" />
-          Data Quality
+          {t("aiAnalysis.cardDataQuality")}
         </CardTitle>
         <Badge variant="outline" className={toneClass(tone)}>
           {dq.risk_level}
@@ -285,18 +288,18 @@ function DataQualityCard({ a }: { a: ProjectAIAnalysis }) {
       <CardContent className="space-y-3 text-sm">
         <div className="grid grid-cols-2 gap-2">
           <div className="rounded-md border bg-card p-2">
-            <div className="text-xs text-muted-foreground">Uncategorized</div>
+            <div className="text-xs text-muted-foreground">{t("aiAnalysis.uncategorized")}</div>
             <div className="text-xl font-semibold">{dq.uncategorized_count}</div>
           </div>
           <div className="rounded-md border bg-card p-2">
-            <div className="text-xs text-muted-foreground">Unassigned</div>
+            <div className="text-xs text-muted-foreground">{t("aiAnalysis.unassigned")}</div>
             <div className="text-xl font-semibold">{dq.unassigned_count}</div>
           </div>
         </div>
         {dq.suggested_matches.length > 0 ? (
           <div>
             <div className="mb-1 text-xs font-medium text-muted-foreground">
-              Suggested matches
+              {t("aiAnalysis.suggestedMatches")}
             </div>
             <ul className="space-y-1">
               {dq.suggested_matches.slice(0, 4).map((m, i) => (
@@ -325,6 +328,7 @@ function DataQualityCard({ a }: { a: ProjectAIAnalysis }) {
 }
 
 function FinancialCard({ a }: { a: ProjectAIAnalysis }) {
+  const { t } = useT();
   const f = a.financial;
   const tone = financialTone(f.status);
   return (
@@ -333,24 +337,24 @@ function FinancialCard({ a }: { a: ProjectAIAnalysis }) {
         <CardTitle className="flex items-center gap-2 text-base">
           <span className="text-yellow-500">🟡</span>
           <Wallet className="h-4 w-4" />
-          Financial (EAC)
+          {t("aiAnalysis.cardFinancial")}
         </CardTitle>
         <Badge variant="outline" className={toneClass(tone)}>
           {f.status.replace("_", " ")}
         </Badge>
       </CardHeader>
       <CardContent className="space-y-2 text-sm">
-        <Row label="Progress" value={`${f.progress_pct.toFixed(0)}%`} />
-        <Row label="Budget used" value={`${f.budget_used_pct.toFixed(0)}%`} />
-        <Row label="BAC (plan)" value={fmtMoney(f.bac)} />
-        <Row label="AC (spent)" value={fmtMoney(f.ac)} />
+        <Row label={t("aiAnalysis.progressLbl")} value={`${f.progress_pct.toFixed(0)}%`} />
+        <Row label={t("aiAnalysis.budgetUsed")} value={`${f.budget_used_pct.toFixed(0)}%`} />
+        <Row label={t("aiAnalysis.bacPlan")} value={fmtMoney(f.bac)} />
+        <Row label={t("aiAnalysis.acSpent")} value={fmtMoney(f.ac)} />
         <Row
-          label="EAC (forecast)"
+          label={t("aiAnalysis.eacForecast")}
           value={fmtMoney(f.eac)}
           strong
         />
         <Row
-          label="Variance"
+          label={t("aiAnalysis.varianceLbl")}
           value={fmtMoney(f.variance)}
           tone={
             parseFloat(String(f.variance)) < 0 ? "critical" : "good"
@@ -362,6 +366,7 @@ function FinancialCard({ a }: { a: ProjectAIAnalysis }) {
 }
 
 function ProductivityCard({ a }: { a: ProjectAIAnalysis }) {
+  const { t } = useT();
   const p = a.productivity;
   const tone: StatusTone =
     p.status === "GOOD"
@@ -377,21 +382,21 @@ function ProductivityCard({ a }: { a: ProjectAIAnalysis }) {
         <CardTitle className="flex items-center gap-2 text-base">
           <span className="text-emerald-500">🟢</span>
           <Users className="h-4 w-4" />
-          Workforce & Productivity
+          {t("aiAnalysis.cardProductivity")}
         </CardTitle>
         <Badge variant="outline" className={toneClass(tone)}>
           {p.status}
         </Badge>
       </CardHeader>
       <CardContent className="space-y-2 text-sm">
-        <Row label="Headcount" value={String(p.headcount)} />
-        <Row label="Man-hours" value={p.man_hours.toFixed(0)} />
+        <Row label={t("aiAnalysis.headcountLbl")} value={String(p.headcount)} />
+        <Row label={t("aiAnalysis.manHours")} value={p.man_hours.toFixed(0)} />
         <Row
-          label="Productivity"
+          label={t("aiAnalysis.productivityLbl")}
           value={p.productivity != null ? p.productivity.toFixed(2) : "—"}
         />
         <Row
-          label="Deviation"
+          label={t("aiAnalysis.deviation")}
           value={
             p.deviation_pct != null ? `${p.deviation_pct.toFixed(1)}%` : "—"
           }
@@ -402,6 +407,7 @@ function ProductivityCard({ a }: { a: ProjectAIAnalysis }) {
 }
 
 function RiskCard({ a }: { a: ProjectAIAnalysis }) {
+  const { t } = useT();
   const r = a.risk;
   const tone = riskTone(r.overall_risk);
   return (
@@ -410,7 +416,7 @@ function RiskCard({ a }: { a: ProjectAIAnalysis }) {
         <CardTitle className="flex items-center gap-2 text-base">
           <span className="text-sky-500">🔵</span>
           <ShieldAlert className="h-4 w-4" />
-          Risk Analysis
+          {t("aiAnalysis.cardRisk")}
         </CardTitle>
         <Badge variant="outline" className={toneClass(tone)}>
           {r.overall_risk}
@@ -418,8 +424,8 @@ function RiskCard({ a }: { a: ProjectAIAnalysis }) {
       </CardHeader>
       <CardContent className="space-y-3 text-sm">
         <Row
-          label="Predicted delay"
-          value={`+${r.predicted_delay_days} days`}
+          label={t("aiAnalysis.predictedDelay")}
+          value={`+${r.predicted_delay_days} ${t("aiAnalysis.days")}`}
         />
         {r.top_risks.length > 0 ? (
           <ol className="space-y-2">
@@ -431,13 +437,13 @@ function RiskCard({ a }: { a: ProjectAIAnalysis }) {
                 <div className="font-medium">{i + 1}. {risk.title}</div>
                 {risk.impact ? (
                   <div className="text-muted-foreground">
-                    <span className="font-medium">Impact: </span>
+                    <span className="font-medium">{t("aiAnalysis.impact")}: </span>
                     {risk.impact}
                   </div>
                 ) : null}
                 {risk.cause ? (
                   <div className="text-muted-foreground">
-                    <span className="font-medium">Cause: </span>
+                    <span className="font-medium">{t("aiAnalysis.cause")}: </span>
                     {risk.cause}
                   </div>
                 ) : null}
@@ -446,7 +452,7 @@ function RiskCard({ a }: { a: ProjectAIAnalysis }) {
           </ol>
         ) : (
           <div className="text-xs text-muted-foreground">
-            No critical risks identified.
+            {t("aiAnalysis.noCriticalRisks")}
           </div>
         )}
       </CardContent>
@@ -461,6 +467,7 @@ function ExecutiveCard({
   a: ProjectAIAnalysis;
   className?: string;
 }) {
+  const { t } = useT();
   const e = a.executive;
   const tone = executiveTone(e.project_status);
   return (
@@ -469,7 +476,7 @@ function ExecutiveCard({
         <CardTitle className="flex items-center gap-2 text-base">
           <span className="text-violet-500">🧠</span>
           <Brain className="h-4 w-4" />
-          Executive Summary
+          {t("aiAnalysis.cardExecutive")}
         </CardTitle>
         <Badge variant="outline" className={toneClass(tone)}>
           {e.project_status}
@@ -478,10 +485,10 @@ function ExecutiveCard({
       <CardContent className="space-y-3 text-sm">
         <p className="leading-relaxed">{e.summary}</p>
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-          <ExecRow label="Biggest problem" value={e.biggest_problem} />
-          <ExecRow label="Financial" value={e.financial_status} />
-          <ExecRow label="Schedule" value={e.schedule_status} />
-          <ExecRow label="Urgent action" value={e.urgent_action} accent />
+          <ExecRow label={t("aiAnalysis.biggestProblem")} value={e.biggest_problem} />
+          <ExecRow label={t("aiAnalysis.financialLbl")} value={e.financial_status} />
+          <ExecRow label={t("aiAnalysis.scheduleLbl")} value={e.schedule_status} />
+          <ExecRow label={t("aiAnalysis.urgentAction")} value={e.urgent_action} accent />
         </div>
       </CardContent>
     </Card>
@@ -575,16 +582,17 @@ function ErrorCard({
   message: string;
   onRetry: () => void;
 }) {
+  const { t } = useT();
   return (
     <Card>
       <CardContent className="flex flex-col items-center gap-3 p-8 text-center">
         <AlertCircle className="h-8 w-8 text-rose-500" />
         <div>
-          <div className="font-medium">Couldn&apos;t load the analysis</div>
+          <div className="font-medium">{t("aiAnalysis.loadFailed")}</div>
           <div className="text-sm text-muted-foreground">{message}</div>
         </div>
         <Button onClick={onRetry} variant="outline" size="sm">
-          Try again
+          {t("aiAnalysis.tryAgain")}
         </Button>
       </CardContent>
     </Card>
