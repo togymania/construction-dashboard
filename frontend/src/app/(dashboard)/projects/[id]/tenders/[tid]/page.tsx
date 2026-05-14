@@ -1729,5 +1729,3 @@ function DraftBidModal({
     </div>
   );
 }
-  );
-}

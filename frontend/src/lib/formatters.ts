@@ -87,18 +87,3 @@ export function formatLabel(value: string): string {
     .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
     .join(" ");
 }
-NaN(num)) return "0%";
-  return `${num.toFixed(1)}%`;
-}
-
-/**
- * Format a snake_case role or status as "Title Case".
- */
-export function formatLabel(value: string): string {
-  return value
-    .split("_")
-    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-    .join(" ");
-}
-join(" ");
-}

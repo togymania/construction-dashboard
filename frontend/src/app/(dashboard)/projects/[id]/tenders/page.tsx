@@ -211,14 +211,3 @@ export default function TendersListPage() {
     </div>
   );
 }
-ell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
-    </div>
-  );
-}

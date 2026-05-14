@@ -280,12 +280,3 @@ function Meta({ label, value }: { label: string; value: string }) {
     </div>
   );
 }
-p className="text-[10px] uppercase tracking-wide text-muted-foreground">
-        {label}
-      </p>
-      <p className="text-sm font-medium mt-0.5 capitalize">
-        {value.replace(/_/g, " ")}
-      </p>
-    </div>
-  );
-}

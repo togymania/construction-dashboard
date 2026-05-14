@@ -345,11 +345,3 @@ function KpiCard({ icon, label, value, subline, sublineColor, highlight }: KpiCa
     </Card>
   );
 }
-1px] mt-1.5 truncate " + (sublineColor ?? "text-muted-foreground")}>
-            {subline}
-          </p>
-        )}
-      </CardContent>
-    </Card>
-  );
-}

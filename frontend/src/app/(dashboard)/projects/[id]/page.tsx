@@ -229,18 +229,3 @@ export default function ProjectOverviewPage() {
     </div>
   );
 }
-</div>
-  );
-}
-}
-        </div>
-      </div>
-    </div>
-  );
-}
-}
-        </div>
-      </div>
-    </div>
-  );
-}

@@ -211,12 +211,3 @@ function SubStat({
     </div>
   );
 }
-iv>
-      <span className="text-muted-foreground">{label}: </span>
-      <span className={"font-medium " + toneClass}>
-        {prefix ? prefix : ""}
-        {value}
-      </span>
-    </div>
-  );
-}
