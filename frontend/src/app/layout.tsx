@@ -22,8 +22,8 @@ const jetBrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Monotekstroy",
-  description: "Monotekstroy — AI Destekli İnşaat Proje Yönetimi",
+  title: "Monartstroy",
+  description: "Monartstroy — AI Destekli İnşaat Proje Yönetimi",
 };
 
 export default function RootLayout({
