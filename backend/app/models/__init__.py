@@ -2,6 +2,7 @@
 from app.models.budget import BudgetItem
 from app.models.budget_category import BudgetCategory
 from app.models.expense import Expense, ExpenseStatus
+from app.models.financial_summary import FinancialSummary
 from app.models.ledger_entry import LedgerEntry, LedgerEntryType
 from app.models.project import Project, ProjectHealth, ProjectStatus
 from app.models.subcontractor import (
@@ -44,6 +45,7 @@ __all__ = [
     "DocumentType",
     "Expense",
     "ExpenseStatus",
+    "FinancialSummary",
     "LedgerEntry",
     "LedgerEntryType",
     "LineType",

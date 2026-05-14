@@ -60,6 +60,7 @@ import { useT } from "@/lib/i18n/provider";
 import { useProject } from "@/components/providers/project-provider";
 import { formatRub, formatRubCompact } from "@/lib/formatters";
 import { LedgerImportWizard } from "@/components/expenses/import-wizard";
+import { FinancialSummaryCards } from "@/components/expenses/financial-summary-cards";
 import type {
   LedgerEntry,
   LedgerStats,
@@ -430,6 +431,9 @@ export default function ExpensesPage() {
           ))
         )}
       </div>
+
+      {/* Financial Summary (OZET) — Monotek + Monart side-by-side cards */}
+      <FinancialSummaryCards projectId={projectId} />
 
       {/* Secondary chips */}
       {stats && (

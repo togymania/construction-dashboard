@@ -96,6 +96,7 @@ import type {
   TenderListItem,
   TenderMarketPrices,
 } from "@/types/tender";
+import type { FinancialSummary } from "@/types/financial-summary";
 import type { DailyBriefing, DashboardStats } from "@/types/dashboard";
 import type { User, TokenResponse } from "@/lib/auth";
 import type {
@@ -348,6 +349,23 @@ export const api = {
       a.click();
       a.remove();
       URL.revokeObjectURL(objectUrl);
+    },
+  },
+  financialSummary: {
+    list: (projectId: number) =>
+      request<FinancialSummary[]>(`/projects/${projectId}/financial-summary`),
+    upload: async (
+      projectId: number,
+      file: File,
+      companyLabel?: string,
+    ): Promise<FinancialSummary> => {
+      const fd = new FormData();
+      fd.append("file", file);
+      if (companyLabel) fd.append("company_label", companyLabel);
+      return request<FinancialSummary>(
+        `/projects/${projectId}/financial-summary/upload`,
+        { method: "POST", body: fd },
+      );
     },
   },
   budgetCategories: {
