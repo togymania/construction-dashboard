@@ -122,38 +122,52 @@ def parse_ozet(raw_bytes: bytes) -> dict:
     OZET sheet yoksa veya beklenen labellar bulunamazsa OzetParseError
     fırlatır.
     """
+    # read_only=True streams the workbook instead of loading every sheet
+    # into memory — kritik çünkü Render free tier 512 MB ile sınırlı ve
+    # Harcama Takip dosyaları 10+ MB olabiliyor.
     try:
-        wb = openpyxl.load_workbook(io.BytesIO(raw_bytes), data_only=True)
+        wb = openpyxl.load_workbook(
+            io.BytesIO(raw_bytes), data_only=True, read_only=True
+        )
     except Exception as exc:  # noqa: BLE001
         raise OzetParseError(f"Excel açılamadı: {exc}") from exc
 
-    # OZET sheet adının exact case'i bilinmez, normalize ederek bul
-    target = None
-    for name in wb.sheetnames:
-        if name.strip().upper() == "OZET":
-            target = name
-            break
-    if target is None:
-        raise OzetParseError(
-            f"'OZET' sayfası bulunamadı. Mevcut sayfalar: {wb.sheetnames}"
-        )
+    try:
+        # OZET sheet adının exact case'i bilinmez, normalize ederek bul
+        target = None
+        for name in wb.sheetnames:
+            if name.strip().upper() == "OZET":
+                target = name
+                break
+        if target is None:
+            raise OzetParseError(
+                f"'OZET' sayfası bulunamadı. Mevcut sayfalar: {wb.sheetnames}"
+            )
 
-    ws = wb[target]
+        ws = wb[target]
 
-    # R1 C → tarih
-    as_of = _to_date(ws.cell(row=1, column=3).value)
-
-    # R3+ B→label, C→value
-    result: dict = {"as_of_date": as_of}
-    for r in range(2, min(ws.max_row or 0, 30) + 1):
-        label_cell = ws.cell(row=r, column=2).value
-        value_cell = ws.cell(row=r, column=3).value
-        if label_cell is None:
-            continue
-        normalized = normalize_label(str(label_cell))
-        if normalized in _LABEL_MAP:
-            field = _LABEL_MAP[normalized]
-            result[field] = _to_decimal(value_cell)
+        # read_only mode'da random cell access yok, sıralı iter_rows lazım.
+        # OZET sayfası küçük (~12 satır) — sadece ilk 30 satıra bak.
+        result: dict = {"as_of_date": None}
+        for row_idx, row in enumerate(
+            ws.iter_rows(min_row=1, max_row=30, max_col=3, values_only=True),
+            start=1,
+        ):
+            # row: tuple of (col A, col B, col C)
+            if row_idx == 1:
+                # R1 C → tarih
+                result["as_of_date"] = _to_date(row[2] if len(row) > 2 else None)
+                continue
+            label_cell = row[1] if len(row) > 1 else None
+            value_cell = row[2] if len(row) > 2 else None
+            if label_cell is None:
+                continue
+            normalized = normalize_label(str(label_cell))
+            if normalized in _LABEL_MAP:
+                field = _LABEL_MAP[normalized]
+                result[field] = _to_decimal(value_cell)
+    finally:
+        wb.close()
 
     # En azından "toplam" bulunmuş olmalı; aksi takdirde format yanlış.
     if "toplam" not in result:
