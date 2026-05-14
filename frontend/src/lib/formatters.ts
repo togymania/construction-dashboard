@@ -11,15 +11,19 @@ export function formatRub(value: string | number | null | undefined): string {
 
 /**
  * Compact format for narrow spaces. Example: "1.48B ₽" or "245.3M ₽".
+ * Negative sayılar için de aynı magnitude kuralları uygulanır
+ * (örn. "-11.18B ₽", "-52.7M ₽").
  */
 export function formatRubCompact(value: string | number | null | undefined): string {
   if (value === null || value === undefined) return "0 ₽";
   const num = typeof value === "string" ? parseFloat(value) : value;
   if (isNaN(num)) return "0 ₽";
 
-  if (num >= 1_000_000_000) return `${(num / 1_000_000_000).toFixed(2)}B ₽`;
-  if (num >= 1_000_000) return `${(num / 1_000_000).toFixed(1)}M ₽`;
-  if (num >= 1_000) return `${(num / 1_000).toFixed(1)}K ₽`;
+  const sign = num < 0 ? "-" : "";
+  const abs = Math.abs(num);
+  if (abs >= 1_000_000_000) return `${sign}${(abs / 1_000_000_000).toFixed(2)}B ₽`;
+  if (abs >= 1_000_000) return `${sign}${(abs / 1_000_000).toFixed(1)}M ₽`;
+  if (abs >= 1_000) return `${sign}${(abs / 1_000).toFixed(1)}K ₽`;
   return `${Math.round(num)} ₽`;
 }
 
@@ -34,9 +38,11 @@ export function formatRubAxisTick(value: string | number | null | undefined): st
   const num = typeof value === "string" ? parseFloat(value) : value;
   if (isNaN(num)) return "0";
 
-  if (num >= 1_000_000_000) return `${(num / 1_000_000_000).toFixed(1)}B`;
-  if (num >= 1_000_000) return `${Math.round(num / 1_000_000)}M`;
-  if (num >= 1_000) return `${Math.round(num / 1_000)}K`;
+  const sign = num < 0 ? "-" : "";
+  const abs = Math.abs(num);
+  if (abs >= 1_000_000_000) return `${sign}${(abs / 1_000_000_000).toFixed(1)}B`;
+  if (abs >= 1_000_000) return `${sign}${Math.round(abs / 1_000_000)}M`;
+  if (abs >= 1_000) return `${sign}${Math.round(abs / 1_000)}K`;
   return `${Math.round(num)}`;
 }
 
@@ -47,15 +53,15 @@ export function formatRubAxisTick(value: string | number | null | undefined): st
 export const formatCurrency = formatRub;
 
 /**
- * Format an ISO date (e.g. "2024-03-15") as "Mar 15, 2024".
+ * Format an ISO date (e.g. "2024-03-15") as "15/03/2024" (dd/mm/yyyy).
  */
 export function formatDate(isoDate: string | null | undefined): string {
   if (!isoDate) return "-";
   try {
-    return new Date(isoDate).toLocaleDateString("en-US", {
+    return new Date(isoDate).toLocaleDateString("en-GB", {
       year: "numeric",
-      month: "short",
-      day: "numeric",
+      month: "2-digit",
+      day: "2-digit",
     });
   } catch {
     return isoDate;
