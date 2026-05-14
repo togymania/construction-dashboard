@@ -394,6 +394,17 @@ const COMPANY_TINT: Record<string, string> = {
   Monart: "oklch(0.68 0.18 155)",        // emerald
 };
 
+// Backend company_label → display string. "Monart" → "Monart Stroy",
+// "Monotekstroy" → "Monotek Stroy". Tutarlı görsel branding için.
+function displayCompany(label: string | null | undefined): string {
+  if (!label) return "";
+  const norm = label.trim();
+  if (norm === "Monart") return "Monart Stroy";
+  if (norm.toLowerCase() === "monotekstroy") return "Monotek Stroy";
+  if (norm === "Monotek") return "Monotek Stroy";
+  return norm;
+}
+
 function CompanyBreakdownCard({ company }: { company: WorkforceKPICompanyToday }) {
   const tint = COMPANY_TINT[company.company_label] ?? "oklch(0.62 0.20 270)";
   return (
@@ -408,7 +419,7 @@ function CompanyBreakdownCard({ company }: { company: WorkforceKPICompanyToday }
             style={{ backgroundColor: tint }}
           />
           <span className="font-heading font-semibold tracking-tight">
-            {company.company_label}
+            {displayCompany(company.company_label)}
           </span>
         </div>
         <span className="text-xs text-muted-foreground tabular-nums">
@@ -565,7 +576,7 @@ function RecentSnapshotsTable({ snapshots }: { snapshots: WorkforceSnapshotListI
                             : "border-[oklch(0.68_0.18_155)]/30 bg-[oklch(0.68_0.18_155)]/10 text-[oklch(0.68_0.18_155)]")
                         }
                       >
-                        {s.company_label}
+                        {displayCompany(s.company_label)}
                       </span>
                     </td>
                     <td className="px-3 py-3 tabular-nums text-muted-foreground">

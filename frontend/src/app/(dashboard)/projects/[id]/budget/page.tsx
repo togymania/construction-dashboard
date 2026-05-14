@@ -128,6 +128,10 @@ export default function ProjectBudgetPage() {
   const [categories, setCategories] = useState<BudgetCategory[]>([]);
   const [expenses, setExpenses] = useState<Expense[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // OZET'ten gelen finansal özet — Total Spent KPI'ı buradan hesaplanıyor
+  const [ozetSummaries, setOzetSummaries] = useState<
+    import("@/types/financial-summary").FinancialSummary[] | null
+  >(null);
 
   // Budget Item dialogs
   const [formOpen, setFormOpen] = useState(false);
@@ -167,23 +171,49 @@ export default function ProjectBudgetPage() {
   async function loadAll() {
     if (isNaN(projectId)) return;
     try {
-      const [proj, itemList, summ, cats, expList] = await Promise.all([
+      const [proj, itemList, summ, cats, expList, ozet] = await Promise.all([
         api.projects.get(projectId),
         api.budgetItems.listForProject(projectId),
         api.budgetItems.summaryForProject(projectId),
         api.budgetCategories.list(),
         api.expenses.listForProject(projectId),
+        api.financialSummary.list(projectId).catch(() => []),
       ]);
       setProject(proj);
       setItems(itemList);
       setSummary(summ);
       setCategories(cats);
       setExpenses(expList);
+      setOzetSummaries(ozet);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load budget");
     }
   }
+
+  // OZET-türetilmiş Toplam Gider — Harcamalar sayfasındaki Finansal Özet
+  // kartlarındaki kırmızı (negatif) kalemlerin toplamı. OZET yoksa eski
+  // ledger-bazlı summary.total_spent'a düşer.
+  const ozetTotalSpent = useMemo(() => {
+    if (!ozetSummaries || ozetSummaries.length === 0) return null;
+    const PARENT_EXPENSE_FIELDS = [
+      "firma_odemeleri",
+      "ucret_giderleri",
+      "vergi_odemeleri",
+      "banka_giderleri",
+      "diger_gelir_giderler",
+    ] as const;
+    let gider = 0;
+    for (const s of ozetSummaries) {
+      for (const f of PARENT_EXPENSE_FIELDS) {
+        const raw = s[f as keyof typeof s];
+        const n = typeof raw === "string" ? parseFloat(raw) : Number(raw);
+        if (!isFinite(n) || n >= 0) continue;
+        gider += -n;
+      }
+    }
+    return gider;
+  }, [ozetSummaries]);
 
   useEffect(() => {
     loadAll();
@@ -295,7 +325,18 @@ export default function ProjectBudgetPage() {
     }));
   }, [summary]);
 
-  const utilizationPct = summary?.utilization_pct ?? 0;
+  // Utilization de OZET-bazlı Total Spent ile tutarlı olsun
+  const utilizationPct = useMemo(() => {
+    if (ozetTotalSpent !== null && summary?.total_planned) {
+      const planned = parseFloat(summary.total_planned);
+      if (planned > 0) return (ozetTotalSpent / planned) * 100;
+    }
+    return summary?.utilization_pct ?? 0;
+  }, [ozetTotalSpent, summary]);
+  const ozetRemaining = useMemo(() => {
+    if (ozetTotalSpent === null || !summary?.total_planned) return null;
+    return parseFloat(summary.total_planned) - ozetTotalSpent;
+  }, [ozetTotalSpent, summary]);
   const utilizationColor =
     utilizationPct < 80
       ? "text-green-600 dark:text-green-500"
@@ -391,7 +432,7 @@ export default function ProjectBudgetPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-semibold">
-              {formatRubCompact(summary?.total_spent)}
+              {formatRubCompact(ozetTotalSpent ?? summary?.total_spent)}
             </div>
             <p className="text-xs text-muted-foreground mt-1">
               {(summary?.expense_records_count ?? 0).toLocaleString()} expense records
@@ -410,7 +451,7 @@ export default function ProjectBudgetPage() {
               {formatPercent(utilizationPct)}
             </div>
             <p className="text-xs text-muted-foreground mt-1">
-              {formatRubCompact(summary?.remaining)} remaining
+              {formatRubCompact(ozetRemaining ?? summary?.remaining)} remaining
             </p>
           </CardContent>
         </Card>
