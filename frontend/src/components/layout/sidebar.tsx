@@ -124,7 +124,7 @@ export function Sidebar({ className }: { className?: string }) {
           sidebar'ın kendi zeminiyle doğal kaynaşır */}
       <div
         className={cn(
-          "flex h-20 items-center border-b",
+          "flex h-16 items-center border-b",
           collapsed ? "justify-center px-2" : "justify-between px-4"
         )}
       >
@@ -156,7 +156,7 @@ export function Sidebar({ className }: { className?: string }) {
                 width={240}
                 height={64}
                 priority
-                className="h-14 w-auto"
+                className="h-10 w-auto max-w-[180px] object-contain"
               />
             </Link>
             <button
