@@ -265,6 +265,8 @@ export const translations = {
       colOverdue: "Overdue",
       colContact: "Contact",
       colActions: "Actions",
+      colRating: "Rating",
+      taxId: "Tax ID",
       emptyTitle: "No subcontractors yet",
       emptyHint: "Add your first subcontractor to start tracking contracts.",
       filterStatus: "Status",
@@ -751,6 +753,8 @@ export const translations = {
       colOverdue: "Geciken",
       colContact: "İletişim",
       colActions: "İşlemler",
+      colRating: "Puan",
+      taxId: "Vergi No",
       emptyTitle: "Henüz taşeron yok",
       emptyHint: "Sözleşme takibine başlamak için ilk taşeronunuzu ekleyin.",
       filterStatus: "Durum",
@@ -980,6 +984,5 @@ export const translations = {
     },
   },
 } as const;
-
 export type Locale = keyof typeof translations;
 export const SUPPORTED_LOCALES: Locale[] = ["EN", "TR"];
