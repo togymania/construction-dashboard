@@ -1,4 +1,4 @@
-﻿"""Pydantic schemas for Dashboard aggregates."""
+"""Pydantic schemas for Dashboard aggregates."""
 from datetime import datetime
 
 from pydantic import BaseModel, Field

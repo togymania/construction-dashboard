@@ -1,4 +1,4 @@
-﻿"""BudgetCategory ORM model (now a table, no longer an enum)."""
+"""BudgetCategory ORM model (now a table, no longer an enum)."""
 from datetime import datetime
 
 from sqlalchemy import Boolean, DateTime, Index, Integer, String, func, text

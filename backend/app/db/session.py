@@ -1,4 +1,4 @@
-﻿"""Async SQLAlchemy session factory and dependency."""
+"""Async SQLAlchemy session factory and dependency."""
 from collections.abc import AsyncGenerator
 
 from sqlalchemy.ext.asyncio import (

@@ -1,4 +1,4 @@
-﻿"""Shared FastAPI dependencies (auth, db, permissions)."""
+"""Shared FastAPI dependencies (auth, db, permissions)."""
 from typing import Annotated, Literal
 
 from fastapi import Depends, Header, HTTPException, status

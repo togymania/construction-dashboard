@@ -1,4 +1,4 @@
-﻿"""Pydantic schemas for BudgetCategory domain."""
+"""Pydantic schemas for BudgetCategory domain."""
 from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field

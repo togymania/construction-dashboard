@@ -1,4 +1,4 @@
-﻿"""Authentication endpoints: register, login, me."""
+"""Authentication endpoints: register, login, me."""
 from fastapi import APIRouter, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy import select

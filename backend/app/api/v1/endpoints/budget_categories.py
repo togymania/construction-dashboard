@@ -1,4 +1,4 @@
-﻿"""Budget category CRUD endpoints (admin/manager managed)."""
+"""Budget category CRUD endpoints (admin/manager managed)."""
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import case, exists, func, select
 from sqlalchemy.exc import IntegrityError

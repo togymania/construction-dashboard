@@ -1,4 +1,4 @@
-﻿"""Pydantic schemas for User domain."""
+"""Pydantic schemas for User domain."""
 from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field

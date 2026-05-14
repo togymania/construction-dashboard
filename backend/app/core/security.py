@@ -1,4 +1,4 @@
-﻿"""Security utilities: password hashing and JWT tokens."""
+"""Security utilities: password hashing and JWT tokens."""
 from datetime import datetime, timedelta, timezone
 from typing import Any
 

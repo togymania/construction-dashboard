@@ -1,4 +1,4 @@
-﻿"""Seed initial admin user.
+"""Seed initial admin user.
 
 Run with:
     python -m app.db.seed_admin

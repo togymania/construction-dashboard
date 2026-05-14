@@ -1,4 +1,4 @@
-﻿"""Expense ORM model."""
+"""Expense ORM model."""
 from datetime import date, datetime
 from decimal import Decimal
 from enum import Enum as PyEnum

@@ -1,4 +1,4 @@
-﻿"""User ORM model."""
+"""User ORM model."""
 from enum import Enum as PyEnum
 
 from sqlalchemy import Boolean, Enum, String
