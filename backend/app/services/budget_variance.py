@@ -189,58 +189,12 @@ async def build_variance_report(
         total_committed += item.committed_amount or Decimal("0")
         total_actual += actual
 
-    # OZET-türetilmiş toplam gider — Harcamalar sayfasındaki Toplam Gider
-    # ile tutarlı olmak için variance toplamlarını Finansal Özet'ten alır
-    # ve per-item actual'ı planlanan tutara oranlı dağıtır.
-    from app.models.financial_summary import FinancialSummary
-    fs_rows = (
-        await db.execute(
-            select(FinancialSummary).where(FinancialSummary.project_id == project_id)
-        )
-    ).scalars().all()
-    PARENT_EXPENSE_FIELDS = (
-        "firma_odemeleri",
-        "ucret_giderleri",
-        "vergi_odemeleri",
-        "banka_giderleri",
-        "diger_gelir_giderler",
-    )
-    ozet_total_expense = Decimal("0")
-    for r in fs_rows:
-        for fld in PARENT_EXPENSE_FIELDS:
-            val = getattr(r, fld, None) or Decimal("0")
-            if val < 0:
-                ozet_total_expense += -val
-    if ozet_total_expense > 0 and total_planned > 0:
-        redistributed: list[BudgetItemVariance] = []
-        for it in items_out:
-            share = it.planned_amount / total_planned
-            new_actual = ozet_total_expense * share
-            new_variance = new_actual - it.planned_amount
-            new_variance_pct = (
-                float(new_variance / it.planned_amount * 100)
-                if it.planned_amount > 0
-                else None
-            )
-            redistributed.append(
-                BudgetItemVariance(
-                    id=it.id,
-                    cost_code=it.cost_code,
-                    description=it.description,
-                    category_id=it.category_id,
-                    category_name=it.category_name,
-                    category_slug=it.category_slug,
-                    planned_amount=it.planned_amount,
-                    committed_amount=it.committed_amount,
-                    actual_amount=new_actual,
-                    variance=new_variance,
-                    variance_pct=new_variance_pct,
-                    matched_expense_count=it.matched_expense_count,
-                    severity=_severity(it.planned_amount, new_actual),
-                )
-            )
-        items_out = redistributed
-        total_actual = ozet_total_expense
+    # NOT: Daha önce buradan OZET'in toplam giderini bütün budget item'lara
+    # planlanan tutara oranlı dağıtan bir blok vardı. Kullanıcı sadece bir
+    # kısım harcamaya bütçe kodu atadığında bile her item -38.6% gibi aynı
+    # variance ile görünüyordu — bu yanıltıcıydı. Artık her item kendi
+    # eşleşen Expense / LedgerEntry kayıtlarından ve kategori-bazlı
+    # dağıtımdan ne aldıysa onu gösteriyor; kod atanmamışsa actual = 0.
 
     overall_variance = total_actual - total_planned
     overall_variance_pct = (

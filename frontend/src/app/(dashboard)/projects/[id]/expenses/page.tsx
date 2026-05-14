@@ -65,6 +65,7 @@ import type {
   LedgerEntry,
   LedgerStats,
 } from "@/types/ledger";
+import type { FinancialSummary } from "@/types/financial-summary";
 import type { BudgetCategory } from "@/types/budget";
 import type { SubcontractorListItem } from "@/types/subcontractor";
 
@@ -97,7 +98,7 @@ function kodColor(kod: string | null): string {
 
 function formatDate(iso: string): string {
   const d = new Date(iso);
-  return d.toLocaleDateString("tr-TR", { day: "2-digit", month: "2-digit", year: "numeric" });
+  return d.toLocaleDateString("en-GB", { day: "2-digit", month: "2-digit", year: "numeric" });
 }
 
 export default function ExpensesPage() {
@@ -119,6 +120,11 @@ export default function ExpensesPage() {
   // contains both Gelir-Gider and OZET sheets, so a ledger import may
   // have updated the FinancialSummary row as a side effect).
   const [ozetRefreshKey, setOzetRefreshKey] = useState(0);
+  // OZET özet verisi — yukarıdaki Gelir/Gider/Net KPI'ları bu satırlardan
+  // hesaplanıyor (positives → gelir, negatives → gider). Fallback: stats.
+  const [ozetSummaries, setOzetSummaries] = useState<FinancialSummary[] | null>(
+    null,
+  );
 
   const [tab, setTab] = useState<TabKey>("all");
   const [kodFilter, setKodFilter] = useState<string>("all");
@@ -192,6 +198,23 @@ export default function ExpensesPage() {
     return () => clearTimeout(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search]);
+
+  // OZET summaries — yukarı KPI'lar buradan gelir
+  useEffect(() => {
+    if (projectId <= 0) return;
+    let cancelled = false;
+    api.financialSummary
+      .list(projectId)
+      .then((data) => {
+        if (!cancelled) setOzetSummaries(data);
+      })
+      .catch(() => {
+        if (!cancelled) setOzetSummaries([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId, ozetRefreshKey]);
 
   function handleImportComplete() {
     setImportOpen(false);
@@ -353,6 +376,69 @@ export default function ExpensesPage() {
     sortedEntries.every((e) => selectedIds.has(e.id));
 
   const kpis = useMemo(() => {
+    // Tercih edilen kaynak: OZET satırları (her şirket için Finansal Özet
+    // tablosundan). Yeşil rakamlar (pozitif değerler) toplanarak Toplam
+    // Gelir, kırmızı rakamlar (negatifler) toplanarak Toplam Gider elde
+    // edilir. VERGI ODEMELERI altındaki Gelir Vergisi + KDV sub-item'lar
+    // ve TOPLAM sütunu çift saymamak için hariç tutulur.
+    //
+    // OZET hâlâ yükleniyor (null) → skeleton göster, ledger fallback'e
+    // düşme: yoksa OZET varken kullanıcıya bir an ledger rakamı
+    // gözükebiliyor (örn. 15.45B / 8.61B), sonra OZET yetişip
+    // 14.16B / 7.33B'ye atlıyordu — kafa karıştırıcı.
+    if (ozetSummaries === null) return null;
+
+    if (ozetSummaries.length > 0) {
+      // Sub-item ve roll-up alanları dışındaki tüm kalemler:
+      const PARENT_FIELDS = [
+        "isveren_tahsilatlari",
+        "firma_odemeleri",
+        "ucret_giderleri",
+        "vergi_odemeleri",
+        "faiz_gelirleri",
+        "banka_giderleri",
+        "diger_gelir_giderler",
+      ] as const;
+
+      let gelir = 0;
+      let gider = 0;
+      for (const s of ozetSummaries) {
+        for (const f of PARENT_FIELDS) {
+          const raw = s[f];
+          const n = typeof raw === "string" ? parseFloat(raw) : Number(raw);
+          if (!isFinite(n) || n === 0) continue;
+          if (n > 0) gelir += n;
+          else gider += -n; // store as positive
+        }
+      }
+      const net = gelir - gider;
+
+      return [
+        {
+          label: t("expenses.kpi.totalIncome"),
+          value: gelir.toString(),
+          icon: TrendingUp,
+          accent: "text-emerald-600 dark:text-emerald-400",
+        },
+        {
+          label: t("expenses.kpi.totalExpense"),
+          value: gider.toString(),
+          icon: TrendingDown,
+          accent: "text-rose-600 dark:text-rose-400",
+        },
+        {
+          label: t("expenses.kpi.net"),
+          value: net.toString(),
+          icon: ArrowDownUp,
+          accent:
+            net >= 0
+              ? "text-emerald-600 dark:text-emerald-400"
+              : "text-rose-600 dark:text-rose-400",
+        },
+      ];
+    }
+
+    // OZET yoksa ledger stats'a düş (geriye dönük uyum)
     if (!stats) return null;
     return [
       {
@@ -377,7 +463,7 @@ export default function ExpensesPage() {
             : "text-rose-600 dark:text-rose-400",
       },
     ];
-  }, [stats, t]);
+  }, [stats, ozetSummaries, t]);
 
   return (
     <div className="space-y-6 p-6">
@@ -899,6 +985,105 @@ export default function ExpensesPage() {
               <p className="text-xs text-muted-foreground">
                 {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, totalCount)} / {totalCount}
               </p>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPage(1)}
+                  disabled={page === 1}
+                >
+                  «
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  disabled={page === 1}
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+                <span className="px-2 text-xs tabular-nums">
+                  {page} / {totalPages}
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={page >= totalPages}
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPage(totalPages)}
+                  disabled={page >= totalPages}
+                >
+                  »
+                </Button>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {importOpen && (
+        <LedgerImportWizard
+          projectId={projectId}
+          onClose={() => setImportOpen(false)}
+          onComplete={handleImportComplete}
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * Clickable sort header. Shows an arrow when active.
+ */
+function SortHeader({
+  label,
+  active,
+  dir,
+  onClick,
+  align = "left",
+}: {
+  label: string;
+  active: boolean;
+  dir: SortDir;
+  onClick: () => void;
+  align?: "left" | "right";
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`inline-flex items-center gap-1 hover:text-foreground transition-colors ${
+        align === "right" ? "ml-auto" : ""
+      } ${active ? "text-foreground font-medium" : "text-muted-foreground"}`}
+    >
+      {align === "right" && active ? (
+        dir === "asc" ? (
+          <ArrowUp className="h-3 w-3" />
+        ) : (
+          <ArrowDown className="h-3 w-3" />
+        )
+      ) : null}
+      <span>{label}</span>
+      {align !== "right" ? (
+        active ? (
+          dir === "asc" ? (
+            <ArrowUp className="h-3 w-3" />
+          ) : (
+            <ArrowDown className="h-3 w-3" />
+          )
+        ) : (
+          <ArrowDownUp className="h-3 w-3 opacity-40" />
+        )
+      ) : null}
+    </button>
+  );
+}
               <div className="flex items-center gap-2">
                 <Button
                   variant="outline"
