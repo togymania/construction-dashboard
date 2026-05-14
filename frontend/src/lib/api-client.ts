@@ -794,10 +794,11 @@ export const api = {
         body: JSON.stringify(data),
       }),
 
-    importPreview: (file: File) => {
+    importPreview: (file: File, projectId?: number) => {
       const fd = new FormData();
       fd.append("file", file);
-      return request<ImportPreview>("/ledger/import/preview", {
+      const qs = projectId ? `?project_id=${projectId}` : "";
+      return request<ImportPreview>(`/ledger/import/preview${qs}`, {
         method: "POST",
         body: fd,
       });
@@ -811,6 +812,12 @@ export const api = {
 
     bySubcontractor: (subcontractorId: number) =>
       request<SubcontractorPaymentEntry[]>(
+        "/ledger/by-subcontractor/" + subcontractorId
+      ),
+  },
+};
+
+aymentEntry[]>(
         "/ledger/by-subcontractor/" + subcontractorId
       ),
   },

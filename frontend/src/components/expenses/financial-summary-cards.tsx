@@ -1,18 +1,17 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { toast } from "sonner";
-import { Loader2, Upload, Building2, AlertCircle } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Building2, AlertCircle } from "lucide-react";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { api, ApiError } from "@/lib/api-client";
-import { useUser } from "@/components/providers/user-provider";
 import type { FinancialSummary } from "@/types/financial-summary";
 
 interface Props {
   projectId: number;
+  /** Bump this number to force a re-fetch (e.g. after Excel import completes). */
+  refreshKey?: number;
 }
 
 const COMPANIES: Array<{ label: string; tone: string; accent: string }> = [
@@ -59,25 +58,15 @@ function amountClass(value: string | number): string {
     : "text-rose-600 dark:text-rose-400";
 }
 
-export function FinancialSummaryCards({ projectId }: Props) {
-  const { user } = useUser();
-  const canUpload =
-    !!user && (user.role === "admin" || user.role === "project_manager");
-
+export function FinancialSummaryCards({ projectId, refreshKey = 0 }: Props) {
   const [summaries, setSummaries] = useState<FinancialSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [uploadingFor, setUploadingFor] = useState<string | null>(null);
-
-  // Ayrı input ref'leri her şirket için
-  const inputRefs: Record<string, React.RefObject<HTMLInputElement | null>> = {
-    Monotek: useRef<HTMLInputElement | null>(null),
-    Monart: useRef<HTMLInputElement | null>(null),
-  };
 
   async function load() {
     try {
       const data = await api.financialSummary.list(projectId);
       setSummaries(data);
+      setError(null);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Yüklenemedi");
     }
@@ -86,22 +75,7 @@ export function FinancialSummaryCards({ projectId }: Props) {
   useEffect(() => {
     if (projectId > 0) load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectId]);
-
-  async function handleUpload(company: string, file: File) {
-    setUploadingFor(company);
-    try {
-      await api.financialSummary.upload(projectId, file, company);
-      toast.success(`${company} OZET güncellendi`);
-      load();
-    } catch (e) {
-      toast.error(e instanceof ApiError ? e.message : "Yükleme başarısız");
-    } finally {
-      setUploadingFor(null);
-      const ref = inputRefs[company]?.current;
-      if (ref) ref.value = "";
-    }
-  }
+  }, [projectId, refreshKey]);
 
   // Şirket bazlı eşle
   const byCompany: Record<string, FinancialSummary | undefined> = {};
@@ -124,7 +98,7 @@ export function FinancialSummaryCards({ projectId }: Props) {
       <CardHeader className="pb-3">
         <CardTitle className="flex items-center gap-2 text-base">
           <Building2 className="h-4 w-4 text-primary" />
-          Finansal Özet (OZET)
+          Finansal Özet
         </CardTitle>
       </CardHeader>
       <CardContent>
@@ -137,51 +111,19 @@ export function FinancialSummaryCards({ projectId }: Props) {
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             {COMPANIES.map((c) => {
               const s = byCompany[c.label];
-              const inputRef = inputRefs[c.label];
-              const isUploading = uploadingFor === c.label;
               return (
                 <div
                   key={c.label}
                   className={`rounded-lg border ${c.tone} p-4`}
                 >
                   {/* Card header */}
-                  <div className="mb-3 flex items-start justify-between gap-2">
-                    <div>
-                      <div className={`text-base font-bold tracking-tight ${c.accent}`}>
-                        {c.label.toUpperCase()}STROY
-                      </div>
-                      <div className="text-[11px] text-muted-foreground">
-                        {s ? formatDate(s.as_of_date) : "OZET yüklenmemiş"}
-                      </div>
+                  <div className="mb-3">
+                    <div className={`text-base font-bold tracking-tight ${c.accent}`}>
+                      {c.label.toUpperCase()}STROY
                     </div>
-                    {canUpload && (
-                      <>
-                        <input
-                          ref={inputRef}
-                          type="file"
-                          accept=".xlsx,.xlsm"
-                          className="hidden"
-                          onChange={(e) => {
-                            const f = e.target.files?.[0];
-                            if (f) handleUpload(c.label, f);
-                          }}
-                        />
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-7 gap-1 text-xs"
-                          onClick={() => inputRef?.current?.click()}
-                          disabled={isUploading}
-                        >
-                          {isUploading ? (
-                            <Loader2 className="h-3 w-3 animate-spin" />
-                          ) : (
-                            <Upload className="h-3 w-3" />
-                          )}
-                          OZET Yükle
-                        </Button>
-                      </>
-                    )}
+                    <div className="text-[11px] text-muted-foreground">
+                      {s ? formatDate(s.as_of_date) : "OZET sayfası henüz yüklenmemiş"}
+                    </div>
                   </div>
 
                   {s ? (
@@ -207,15 +149,13 @@ export function FinancialSummaryCards({ projectId }: Props) {
                   ) : (
                     <div className="py-8 text-center text-sm text-muted-foreground">
                       {c.label} için OZET verisi henüz yok.
-                      {canUpload && (
-                        <div className="mt-2 text-xs">
-                          Üstteki <strong>OZET Yükle</strong> butonuyla{" "}
-                          <code className="rounded bg-muted px-1 py-0.5">
-                            Harcama Takip-...-{c.label}.xlsx
-                          </code>{" "}
-                          dosyasını yükleyin.
-                        </div>
-                      )}
+                      <div className="mt-2 text-xs">
+                        Yukarıdaki <strong>Excel Yükle</strong> butonundan{" "}
+                        <code className="rounded bg-muted px-1 py-0.5">
+                          Harcama Takip-...-{c.label}.xlsx
+                        </code>{" "}
+                        dosyasını yükleyince otomatik dolar.
+                      </div>
                     </div>
                   )}
                 </div>

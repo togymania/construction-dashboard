@@ -115,6 +115,10 @@ export default function ExpensesPage() {
   const [page, setPage] = useState<number>(1);
   const [error, setError] = useState<string | null>(null);
   const [importOpen, setImportOpen] = useState(false);
+  // Bump after a successful import to re-fetch the OZET cards (same Excel
+  // contains both Gelir-Gider and OZET sheets, so a ledger import may
+  // have updated the FinancialSummary row as a side effect).
+  const [ozetRefreshKey, setOzetRefreshKey] = useState(0);
 
   const [tab, setTab] = useState<TabKey>("all");
   const [kodFilter, setKodFilter] = useState<string>("all");
@@ -192,6 +196,7 @@ export default function ExpensesPage() {
   function handleImportComplete() {
     setImportOpen(false);
     loadData();
+    setOzetRefreshKey((k) => k + 1);
   }
 
   // ---- Reference data: budget categories + subcontractors (for inline + bulk assign) ----
@@ -433,7 +438,7 @@ export default function ExpensesPage() {
       </div>
 
       {/* Financial Summary (OZET) — Monotek + Monart side-by-side cards */}
-      <FinancialSummaryCards projectId={projectId} />
+      <FinancialSummaryCards projectId={projectId} refreshKey={ozetRefreshKey} />
 
       {/* Secondary chips */}
       {stats && (
@@ -938,6 +943,7 @@ export default function ExpensesPage() {
 
       {importOpen && (
         <LedgerImportWizard
+          projectId={projectId}
           onClose={() => setImportOpen(false)}
           onComplete={handleImportComplete}
         />

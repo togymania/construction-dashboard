@@ -39,7 +39,13 @@ from app.schemas.ledger_entry import (
     ParseError,
     SubcontractorPaymentEntry,
 )
+from app.models.financial_summary import FinancialSummary
 from app.services import ledger_import_cache as cache
+from app.services.financial_summary_parser import (
+    OzetParseError,
+    detect_company_label,
+    parse_ozet,
+)
 from app.services.ledger_excel import (
     deduplicate_within_file,
     parse_gelir_gider,
@@ -221,6 +227,7 @@ async def list_entries(
 async def import_preview(
     db: DBSession,
     file: UploadFile = File(...),
+    project_id: int | None = Query(default=None),
     user: User = Depends(require_roles(UserRole.ADMIN, UserRole.PROJECT_MANAGER)),
 ) -> ImportPreview:
     if not file.filename or not file.filename.lower().endswith(".xlsx"):
@@ -238,6 +245,62 @@ async def import_preview(
         )
 
     parse_result = parse_gelir_gider(contents)
+
+    # Aynı Excel'in "OZET" sayfasını da deneyip Finansal Özet kartlarını
+    # güncelle. project_id verilmemişse veya OZET sayfası yoksa sessizce
+    # geç — ana ledger akışını bozmamak için her şey try/except içinde.
+    if project_id is not None:
+        try:
+            ozet = parse_ozet(contents)
+            company = detect_company_label(file.filename or "")
+            if company != "Unknown":
+                existing = (
+                    await db.execute(
+                        select(FinancialSummary).where(
+                            FinancialSummary.project_id == project_id,
+                            FinancialSummary.company_label == company,
+                        )
+                    )
+                ).scalar_one_or_none()
+
+                if existing is None:
+                    fs = FinancialSummary(
+                        project_id=project_id,
+                        company_label=company,
+                        as_of_date=ozet["as_of_date"],
+                        isveren_tahsilatlari=ozet["isveren_tahsilatlari"],
+                        firma_odemeleri=ozet["firma_odemeleri"],
+                        ucret_giderleri=ozet["ucret_giderleri"],
+                        vergi_odemeleri=ozet["vergi_odemeleri"],
+                        gelir_vergisi=ozet["gelir_vergisi"],
+                        kdv=ozet["kdv"],
+                        faiz_gelirleri=ozet["faiz_gelirleri"],
+                        banka_giderleri=ozet["banka_giderleri"],
+                        diger_gelir_giderler=ozet["diger_gelir_giderler"],
+                        toplam=ozet["toplam"],
+                        source_filename=file.filename,
+                        uploaded_by=user.id,
+                    )
+                    db.add(fs)
+                else:
+                    existing.as_of_date = ozet["as_of_date"]
+                    existing.isveren_tahsilatlari = ozet["isveren_tahsilatlari"]
+                    existing.firma_odemeleri = ozet["firma_odemeleri"]
+                    existing.ucret_giderleri = ozet["ucret_giderleri"]
+                    existing.vergi_odemeleri = ozet["vergi_odemeleri"]
+                    existing.gelir_vergisi = ozet["gelir_vergisi"]
+                    existing.kdv = ozet["kdv"]
+                    existing.faiz_gelirleri = ozet["faiz_gelirleri"]
+                    existing.banka_giderleri = ozet["banka_giderleri"]
+                    existing.diger_gelir_giderler = ozet["diger_gelir_giderler"]
+                    existing.toplam = ozet["toplam"]
+                    existing.source_filename = file.filename
+                    existing.uploaded_by = user.id
+
+                await db.commit()
+        except OzetParseError:
+            # OZET sayfası yoksa veya format değişmişse sessizce geç
+            pass
 
     # In-file dedup
     deduped_rows, in_file_dups = deduplicate_within_file(parse_result.rows)

@@ -46,9 +46,10 @@ type CompanyDecision = "accept" | "skip";
 interface Props {
   onClose: () => void;
   onComplete: () => void;
+  projectId?: number;
 }
 
-export function LedgerImportWizard({ onClose, onComplete }: Props) {
+export function LedgerImportWizard({ onClose, onComplete, projectId }: Props) {
   const { t } = useT();
   const [step, setStep] = useState<Step>("upload");
   const [file, setFile] = useState<File | null>(null);
@@ -77,7 +78,7 @@ export function LedgerImportWizard({ onClose, onComplete }: Props) {
     setBusy(true);
     setError(null);
     try {
-      const p = await api.ledger.importPreview(file);
+      const p = await api.ledger.importPreview(file, projectId);
       setPreview(p);
 
       // Pre-set decisions: accept = high_confidence, skip = others
