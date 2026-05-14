@@ -194,7 +194,7 @@ export default function ProjectOverviewPage() {
                 Start date
               </p>
               <p className="text-xl font-bold mt-1">
-                {new Date(project.start_date).toLocaleDateString()}
+                {new Date(project.start_date).toLocaleDateString("en-GB")}
               </p>
             </div>
             <div>
@@ -202,7 +202,7 @@ export default function ProjectOverviewPage() {
                 End date
               </p>
               <p className="text-xl font-bold mt-1">
-                {new Date(project.end_date).toLocaleDateString()}
+                {new Date(project.end_date).toLocaleDateString("en-GB")}
               </p>
             </div>
           </div>

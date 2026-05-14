@@ -186,7 +186,7 @@ export default function TendersListPage() {
                       )}
                     </TableCell>
                     <TableCell className="text-xs text-muted-foreground">
-                      {new Date(t.created_at).toLocaleDateString()}
+                      {new Date(t.created_at).toLocaleDateString("en-GB")}
                     </TableCell>
                     <TableCell>
                       {canEdit ? (

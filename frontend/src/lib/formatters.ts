@@ -53,15 +53,15 @@ export function formatRubAxisTick(value: string | number | null | undefined): st
 export const formatCurrency = formatRub;
 
 /**
- * Format an ISO date (e.g. "2024-03-15") as "Mar 15, 2024".
+ * Format an ISO date (e.g. "2024-03-15") as "15/03/2024" (dd/mm/yyyy).
  */
 export function formatDate(isoDate: string | null | undefined): string {
   if (!isoDate) return "-";
   try {
-    return new Date(isoDate).toLocaleDateString("en-US", {
+    return new Date(isoDate).toLocaleDateString("en-GB", {
       year: "numeric",
-      month: "short",
-      day: "numeric",
+      month: "2-digit",
+      day: "2-digit",
     });
   } catch {
     return isoDate;
