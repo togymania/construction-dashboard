@@ -203,6 +203,7 @@ async def get_eac(
     from sqlalchemy import func
     from app.models.budget import BudgetItem
     from app.models.expense import Expense
+    from app.models.financial_summary import FinancialSummary
     from app.models.ledger_entry import LedgerEntry, LedgerEntryType
     from app.models.subcontractor import SubcontractorContract
 
@@ -217,19 +218,47 @@ async def get_eac(
     if bac == 0:
         bac = Decimal(project.budget_rub or 0)
 
-    ledger_ac = Decimal((await db.execute(
-        select(func.coalesce(func.sum(LedgerEntry.amount), 0))
-        .join(SubcontractorContract, SubcontractorContract.id == LedgerEntry.contract_id)
-        .where(
-            SubcontractorContract.project_id == project_id,
-            LedgerEntry.entry_type == LedgerEntryType.EXPENSE,
+    # AC (Actual Cost) — Finansal Özet (OZET) Toplam Gider'inden çekilir.
+    # OZET satırları varsa: her şirket için negatif kalemleri topla
+    # (firma_odemeleri, ucret_giderleri, vergi_odemeleri, banka_giderleri,
+    # diger_gelir_giderler eğer negatifse). gelir_vergisi + kdv sub-item'lar
+    # vergi_odemeleri içinde zaten — çift sayma yok. toplam roll-up'tır,
+    # dahil edilmez.
+    # OZET yoksa eski mantığa düş: ledger EXPENSE + Expense tablosu.
+    fs_rows = (
+        await db.execute(
+            select(FinancialSummary).where(FinancialSummary.project_id == project_id)
         )
-    )).scalar_one() or 0)
-    expense_ac = Decimal((await db.execute(
-        select(func.coalesce(func.sum(Expense.amount), 0))
-        .where(Expense.project_id == project_id)
-    )).scalar_one() or 0)
-    ac = ledger_ac + expense_ac
+    ).scalars().all()
+
+    if fs_rows:
+        PARENT_EXPENSE_FIELDS = (
+            "firma_odemeleri",
+            "ucret_giderleri",
+            "vergi_odemeleri",
+            "banka_giderleri",
+            "diger_gelir_giderler",
+        )
+        ac = Decimal(0)
+        for row in fs_rows:
+            for field in PARENT_EXPENSE_FIELDS:
+                val = getattr(row, field, None) or Decimal(0)
+                if val < 0:
+                    ac += -val  # absolute value
+    else:
+        ledger_ac = Decimal((await db.execute(
+            select(func.coalesce(func.sum(LedgerEntry.amount), 0))
+            .join(SubcontractorContract, SubcontractorContract.id == LedgerEntry.contract_id)
+            .where(
+                SubcontractorContract.project_id == project_id,
+                LedgerEntry.entry_type == LedgerEntryType.EXPENSE,
+            )
+        )).scalar_one() or 0)
+        expense_ac = Decimal((await db.execute(
+            select(func.coalesce(func.sum(Expense.amount), 0))
+            .where(Expense.project_id == project_id)
+        )).scalar_one() or 0)
+        ac = ledger_ac + expense_ac
 
     progress = float(project.progress_pct or 0)
     ev = bac * Decimal(progress / 100.0) if bac > 0 else Decimal(0)
