@@ -939,13 +939,6 @@ async def import_cmi_monart(
         errors=errors,
         warnings=warnings,
     )
-) + imported,
-                deleted_count=0,
-                errors=errors + [BudgetImportRowError(
-                    row=0, reason="Final commit failed",
-                )],
-                warnings=warnings,
-            )
 
     return BudgetImportResult(
         imported_count=imported,
