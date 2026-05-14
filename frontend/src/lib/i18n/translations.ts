@@ -250,6 +250,10 @@ export const translations = {
         title: "Expenses",
         description: "Income & expense ledger imported from Excel",
       },
+      tenders: {
+        title: "Tenders",
+        description: "Compare bids for each work package",
+      },
       schedule: {
         title: "Schedule",
         description: "Timeline, milestones, dependencies",
@@ -925,6 +929,10 @@ export const translations = {
       expenses: {
         title: "Harcamalar",
         description: "Excel'den içe aktarılan gelir-gider defteri",
+      },
+      tenders: {
+        title: "İhaleler",
+        description: "Her iş paketi için teklifleri karşılaştır",
       },
       schedule: {
         title: "Takvim",
