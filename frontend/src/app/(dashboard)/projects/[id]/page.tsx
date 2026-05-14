@@ -27,7 +27,8 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useProject } from "@/components/providers/project-provider";
 import { useUser } from "@/components/providers/user-provider";
-import { formatRubCompact, formatLabel, formatPercent } from "@/lib/formatters";
+import { useT } from "@/lib/i18n/provider";
+import { formatRubCompact, formatPercent } from "@/lib/formatters";
 import type { ProjectStatus, ProjectHealth } from "@/types/project";
 import { EACWidget } from "@/components/projects/eac-widget";
 
@@ -39,67 +40,48 @@ const STATUS_VARIANT: Record<ProjectStatus, "default" | "secondary" | "outline">
   cancelled: "outline",
 };
 
-const HEALTH_LABEL: Record<ProjectHealth, string> = {
-  on_track: "On track",
-  at_risk: "At risk",
-  delayed: "Delayed",
-};
-
 const HEALTH_COLOR: Record<ProjectHealth, string> = {
   on_track: "text-green-600 dark:text-green-500",
   at_risk: "text-amber-600 dark:text-amber-500",
   delayed: "text-red-600 dark:text-red-500",
 };
 
-const MODULES = [
-  {
-    segment: "subcontractors",
-    title: "Subcontractors",
-    description: "Companies, contracts and payments",
-    icon: HardHat,
-  },
-  {
-    segment: "workforce",
-    title: "Workforce",
-    description: "Daily puantaj, productivity, trends",
-    icon: Users,
-  },
-  {
-    segment: "budget",
-    title: "Budget",
-    description: "Categories, items, planned vs actual",
-    icon: Wallet,
-  },
-  {
-    segment: "expenses",
-    title: "Expenses",
-    description: "Income & expense ledger imported from Excel",
-    icon: Receipt,
-  },
-  {
-    segment: "schedule",
-    title: "Schedule",
-    description: "Timeline, milestones, dependencies",
-    icon: Calendar,
-  },
-  {
-    segment: "risks",
-    title: "Risks",
-    description: "AI-detected risks & mitigation plans",
-    icon: AlertTriangle,
-  },
-  {
-    segment: "reports",
-    title: "Reports",
-    description: "Executive summary & exports",
-    icon: FileBarChart,
-  },
-];
+const MODULE_DEFS = [
+  { segment: "subcontractors", icon: HardHat },
+  { segment: "workforce", icon: Users },
+  { segment: "budget", icon: Wallet },
+  { segment: "expenses", icon: Receipt },
+  { segment: "schedule", icon: Calendar },
+  { segment: "risks", icon: AlertTriangle },
+  { segment: "reports", icon: FileBarChart },
+] as const;
 
 export default function ProjectOverviewPage() {
   const { project, isLoading, error } = useProject();
   const { user } = useUser();
   const router = useRouter();
+  const { t } = useT();
+
+  const HEALTH_LABEL: Record<ProjectHealth, string> = {
+    on_track: t("project.health.onTrack"),
+    at_risk: t("project.health.atRisk"),
+    delayed: t("project.health.delayed"),
+  };
+
+  const STATUS_LABEL: Record<ProjectStatus, string> = {
+    planning: t("project.status.planning"),
+    active: t("project.status.active"),
+    on_hold: t("project.status.on_hold"),
+    completed: t("project.status.completed"),
+    cancelled: t("project.status.cancelled"),
+  };
+
+  const MODULES = MODULE_DEFS.map((m) => ({
+    segment: m.segment,
+    icon: m.icon,
+    title: t(`modules.${m.segment}.title`),
+    description: t(`modules.${m.segment}.description`),
+  }));
 
   // WORKFORCE_EDITOR proje genel bakışını göremez — otomatik olarak
   // İşgücü sekmesine yönlendiriyoruz.
@@ -156,7 +138,7 @@ export default function ProjectOverviewPage() {
                   {project.location}
                 </span>
                 <Badge variant={STATUS_VARIANT[project.status]} className="text-xs">
-                  {formatLabel(project.status)}
+                  {STATUS_LABEL[project.status]}
                 </Badge>
                 <span className={`text-xs font-medium ${HEALTH_COLOR[project.health]}`}>
                   {HEALTH_LABEL[project.health]}
@@ -174,7 +156,7 @@ export default function ProjectOverviewPage() {
           <div className="grid gap-4 md:grid-cols-4">
             <div>
               <p className="text-xs text-muted-foreground uppercase tracking-wide">
-                Budget
+                {t("project.budget")}
               </p>
               <p className="text-xl font-bold mt-1">
                 {formatRubCompact(project.budget_rub)}
@@ -182,7 +164,7 @@ export default function ProjectOverviewPage() {
             </div>
             <div>
               <p className="text-xs text-muted-foreground uppercase tracking-wide">
-                Progress
+                {t("project.progress")}
               </p>
               <p className="text-xl font-bold mt-1 inline-flex items-center gap-1">
                 <TrendingUp className="h-4 w-4 text-primary" />
@@ -191,7 +173,7 @@ export default function ProjectOverviewPage() {
             </div>
             <div>
               <p className="text-xs text-muted-foreground uppercase tracking-wide">
-                Start date
+                {t("project.startDate")}
               </p>
               <p className="text-xl font-bold mt-1">
                 {new Date(project.start_date).toLocaleDateString("en-GB")}
@@ -199,7 +181,7 @@ export default function ProjectOverviewPage() {
             </div>
             <div>
               <p className="text-xs text-muted-foreground uppercase tracking-wide">
-                End date
+                {t("project.endDate")}
               </p>
               <p className="text-xl font-bold mt-1">
                 {new Date(project.end_date).toLocaleDateString("en-GB")}
@@ -215,7 +197,7 @@ export default function ProjectOverviewPage() {
       {/* Module quick-launch grid */}
       <div>
         <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">
-          Modules
+          {t("project.modules")}
         </h2>
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
           {visibleModules.map((m) => {

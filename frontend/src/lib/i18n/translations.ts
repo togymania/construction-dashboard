@@ -46,6 +46,67 @@ export const translations = {
     },
     project: {
       backToProjects: "All projects",
+      budget: "Budget",
+      progress: "Progress",
+      startDate: "Start date",
+      endDate: "End date",
+      modules: "Modules",
+      health: {
+        onTrack: "On track",
+        atRisk: "At risk",
+        delayed: "Delayed",
+      },
+      status: {
+        planning: "Planning",
+        active: "Active",
+        on_hold: "On hold",
+        completed: "Completed",
+        cancelled: "Cancelled",
+      },
+    },
+    eac: {
+      title: "EAC Forecast",
+      bacLabel: "BAC (plan)",
+      acLabel: "AC (spent)",
+      eacLabel: "EAC (forecast)",
+      progressLabel: "Progress",
+      cpiLabel: "CPI",
+      varianceLabel: "Variance",
+      statusOverBudget: "Budget overrun forecast",
+      statusUnderBudget: "Under budget",
+      statusOnTrack: "On track",
+      statusUnknown: "Insufficient data",
+      errorLoad: "Failed to load EAC",
+    },
+    modules: {
+      subcontractors: {
+        title: "Subcontractors",
+        description: "Companies, contracts and payments",
+      },
+      workforce: {
+        title: "Workforce",
+        description: "Daily attendance, productivity, trends",
+      },
+      budget: {
+        title: "Budget",
+        description: "Categories, items, planned vs actual",
+      },
+      expenses: {
+        title: "Expenses",
+        description: "Income & expense ledger imported from Excel",
+      },
+      schedule: {
+        title: "Schedule",
+        description: "Timeline, milestones, dependencies",
+      },
+      risks: {
+        title: "Risks",
+        description: "AI-detected risks & mitigation plans",
+      },
+      reports: {
+        title: "Reports",
+        description: "Executive summary & exports",
+      },
     },
 
     // Header
@@ -294,6 +355,67 @@ export const translations = {
     },
     project: {
       backToProjects: "Tüm projeler",
+      budget: "Bütçe",
+      progress: "İlerleme",
+      startDate: "Başlangıç tarihi",
+      endDate: "Bitiş tarihi",
+      modules: "Modüller",
+      health: {
+        onTrack: "Yolunda",
+        atRisk: "Riskli",
+        delayed: "Gecikmeli",
+      },
+      status: {
+        planning: "Planlama",
+        active: "Aktif",
+        on_hold: "Beklemede",
+        completed: "Tamamlandı",
+        cancelled: "İptal edildi",
+      },
+    },
+    eac: {
+      title: "EAC Tahmini",
+      bacLabel: "BAC (plan)",
+      acLabel: "AC (harcanan)",
+      eacLabel: "EAC (tahmin)",
+      progressLabel: "İlerleme",
+      cpiLabel: "CPI",
+      varianceLabel: "Sapma",
+      statusOverBudget: "Bütçe aşımı tahmini",
+      statusUnderBudget: "Bütçenin altında",
+      statusOnTrack: "Yolunda",
+      statusUnknown: "Yetersiz veri",
+      errorLoad: "EAC yüklenemedi",
+    },
+    modules: {
+      subcontractors: {
+        title: "Taşeronlar",
+        description: "Firmalar, sözleşmeler ve ödemeler",
+      },
+      workforce: {
+        title: "İşgücü",
+        description: "Günlük puantaj, verimlilik, trendler",
+      },
+      budget: {
+        title: "Bütçe",
+        description: "Kategoriler, kalemler, planlanan vs gerçekleşen",
+      },
+      expenses: {
+        title: "Harcamalar",
+        description: "Excel'den içe aktarılan gelir-gider defteri",
+      },
+      schedule: {
+        title: "Takvim",
+        description: "Zaman çizelgesi, kilometre taşları, bağımlılıklar",
+      },
+      risks: {
+        title: "Riskler",
+        description: "AI tespitli riskler ve azaltma planları",
+      },
+      reports: {
+        title: "Raporlar",
+        description: "Yönetici özeti ve dışa aktarımlar",
+      },
     },
 
     header: {

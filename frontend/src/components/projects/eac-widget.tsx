@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { api, ApiError } from "@/lib/api-client";
 import { formatRubCompact } from "@/lib/formatters";
+import { useT } from "@/lib/i18n/provider";
 
 interface EACBundle {
   bac: number;
@@ -20,7 +21,10 @@ interface EACBundle {
   status: "OVER_BUDGET" | "ON_TRACK" | "UNDER_BUDGET" | "UNKNOWN";
 }
 
-function statusStyles(status: EACBundle["status"]): {
+function statusStyles(
+  status: EACBundle["status"],
+  t: (k: string) => string,
+): {
   variant: "default" | "secondary" | "destructive" | "outline";
   className: string;
   label: string;
@@ -31,34 +35,35 @@ function statusStyles(status: EACBundle["status"]): {
       return {
         variant: "destructive",
         className: "border-rose-200 bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-900",
-        label: "Budget overrun forecast",
+        label: t("eac.statusOverBudget"),
         icon: AlertTriangle,
       };
     case "UNDER_BUDGET":
       return {
         variant: "default",
         className: "border-emerald-200 bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-900",
-        label: "Under budget",
+        label: t("eac.statusUnderBudget"),
         icon: CheckCircle2,
       };
     case "ON_TRACK":
       return {
         variant: "secondary",
         className: "border-blue-200 bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300 dark:border-blue-900",
-        label: "On track",
+        label: t("eac.statusOnTrack"),
         icon: CheckCircle2,
       };
     default:
       return {
         variant: "outline",
         className: "",
-        label: "Insufficient data",
+        label: t("eac.statusUnknown"),
         icon: HelpCircle,
       };
   }
 }
 
 export function EACWidget({ projectId }: { projectId: number }) {
+  const { t } = useT();
   const [data, setData] = useState<EACBundle | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -69,12 +74,12 @@ export function EACWidget({ projectId }: { projectId: number }) {
       .then((d) => mounted && setData(d))
       .catch((e) =>
         mounted &&
-        setError(e instanceof ApiError ? e.message : "Failed to load EAC")
+        setError(e instanceof ApiError ? e.message : t("eac.errorLoad"))
       );
     return () => {
       mounted = false;
     };
-  }, [projectId]);
+  }, [projectId, t]);
 
   if (error) {
     return (
@@ -82,7 +87,7 @@ export function EACWidget({ projectId }: { projectId: number }) {
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
             <TrendingUp className="h-4 w-4" />
-            EAC Forecast
+            {t("eac.title")}
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -98,7 +103,7 @@ export function EACWidget({ projectId }: { projectId: number }) {
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
             <TrendingUp className="h-4 w-4" />
-            EAC Forecast
+            {t("eac.title")}
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-2">
@@ -110,7 +115,7 @@ export function EACWidget({ projectId }: { projectId: number }) {
     );
   }
 
-  const styles = statusStyles(data.status);
+  const styles = statusStyles(data.status, t);
   const Icon = styles.icon;
   const variancePositive = data.vac >= 0;
 
@@ -128,19 +133,19 @@ export function EACWidget({ projectId }: { projectId: number }) {
       </CardHeader>
       <CardContent className="space-y-3">
         <div className="grid grid-cols-3 gap-3">
-          <Stat label="BAC (plan)" value={formatRubCompact(data.bac)} />
-          <Stat label="AC (spent)" value={formatRubCompact(data.ac)} />
+          <Stat label={t("eac.bacLabel")} value={formatRubCompact(data.bac)} />
+          <Stat label={t("eac.acLabel")} value={formatRubCompact(data.ac)} />
           <Stat
-            label="EAC (forecast)"
+            label={t("eac.eacLabel")}
             value={formatRubCompact(data.eac)}
             highlight
           />
         </div>
         <div className="grid grid-cols-3 gap-3 text-xs">
-          <SubStat label="Progress" value={`${data.progress_pct.toFixed(0)}%`} />
-          <SubStat label="CPI" value={data.cpi.toFixed(2)} />
+          <SubStat label={t("eac.progressLabel")} value={`${data.progress_pct.toFixed(0)}%`} />
+          <SubStat label={t("eac.cpiLabel")} value={data.cpi.toFixed(2)} />
           <SubStat
-            label="Variance"
+            label={t("eac.varianceLabel")}
             value={formatRubCompact(Math.abs(data.vac))}
             tone={variancePositive ? "good" : "critical"}
             prefix={variancePositive ? "+" : "−"}
