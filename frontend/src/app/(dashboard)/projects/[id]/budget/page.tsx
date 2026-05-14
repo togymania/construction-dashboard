@@ -1098,8 +1098,3 @@ export default function ProjectBudgetPage() {
     </div>
   );
 }
-ntent>
-      </AlertDialog>
-    </div>
-  );
-}
