@@ -185,26 +185,3 @@ def parse_ozet(raw_bytes: bytes) -> dict:
         result["as_of_date"] = date.today()
 
     return result
-e_label(str(label_cell))
-            if normalized in _LABEL_MAP:
-                field = _LABEL_MAP[normalized]
-                result[field] = _to_decimal(value_cell)
-    finally:
-        wb.close()
-
-    # En azından "toplam" bulunmuş olmalı; aksi takdirde format yanlış.
-    if "toplam" not in result:
-        raise OzetParseError(
-            "OZET sayfasında beklenen kalemler bulunamadı (TOPLAM eksik). "
-            "Şablon değişmiş olabilir."
-        )
-
-    # Boş kalanları sıfırla
-    for f in _LABEL_MAP.values():
-        result.setdefault(f, Decimal(0))
-
-    # as_of_date hâlâ None ise bugünü kullan
-    if result["as_of_date"] is None:
-        result["as_of_date"] = date.today()
-
-    return result

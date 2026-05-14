@@ -374,37 +374,3 @@ async def get_ai_analysis(
 
     insights_cache.set(cache_key, analysis)  # type: ignore[arg-type]
     return analysis
-lysis,
-    summary="Six-section AI project control & risk analysis",
-)
-async def get_ai_analysis(
-    project_id: int,
-    user: CurrentUser,
-    db: DBSession,
-    lang: UserLang,
-    force_refresh: bool = Query(False, description="Bypass cache and re-generate"),
-) -> ProjectAIAnalysis:
-    """Run the full schedule + data quality + finance + productivity +
-    risk + executive analysis for a project.
-
-    Cached for 15 minutes per (project, language) so demo refreshes feel
-    instant while the underlying Claude call is gated. Pass
-    ``force_refresh=true`` to re-run.
-    """
-    from app.services import insights_cache
-    from app.services.project_ai_analysis import build_ai_analysis
-
-    cache_key = (project_id + _AI_ANALYSIS_KEY_OFFSET) * 10 + (
-        1 if lang == "TR" else 0
-    )
-    if not force_refresh:
-        cached = insights_cache.get(cache_key)
-        if cached is not None:
-            return cached  # type: ignore[return-value]
-
-    analysis = await build_ai_analysis(db, project_id, lang=lang)
-    if analysis is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")
-
-    insights_cache.set(cache_key, analysis)  # type: ignore[arg-type]
-    return analysis

@@ -939,13 +939,3 @@ async def import_cmi_monart(
         errors=errors,
         warnings=warnings,
     )
-
-    return BudgetImportResult(
-        imported_count=imported,
-        skipped_count=len(errors) + len(warnings),
-        deleted_count=deleted_count,
-        errors=errors,
-        warnings=warnings,
-    )
-nings,
-    )
