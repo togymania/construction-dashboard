@@ -35,7 +35,7 @@ interface Props {
 
 function formatDate(iso: string): string {
   const d = new Date(iso);
-  return d.toLocaleDateString("en-GB", {
+  return d.toLocaleDateString("tr-TR", {
     day: "2-digit",
     month: "2-digit",
     year: "numeric",

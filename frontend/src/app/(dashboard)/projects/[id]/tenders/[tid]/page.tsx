@@ -724,9 +724,9 @@ export default function TenderDetailPage() {
                     ) : null}
                     {b.quote_date ? (
                       <Badge variant="outline" title="Teklif tarihi">
-                        {new Date(b.quote_date).toLocaleDateString("en-GB", {
+                        {new Date(b.quote_date).toLocaleDateString(undefined, {
                           day: "2-digit",
-                          month: "2-digit",
+                          month: "short",
                           year: "numeric",
                         })}
                       </Badge>
@@ -748,7 +748,7 @@ export default function TenderDetailPage() {
                             <span>
                               v{prev.revision_no}
                               {prev.quote_date
-                                ? ` · ${new Date(prev.quote_date).toLocaleDateString("en-GB")}`
+                                ? ` · ${new Date(prev.quote_date).toLocaleDateString()}`
                                 : ""}
                             </span>
                             <span className="line-through">

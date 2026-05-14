@@ -1487,16 +1487,11 @@ async def get_aggregate_cashflow_forecast(
     confidence_weights: list[tuple[float, float]] = []  # (confidence, weight)
 
     for sub in subs:
-        # History rows for this sub — birleşik kaynak:
-        #  (a) SubcontractorPayment (formal hakediş)
-        #  (b) LedgerEntry EXPENSE (Excel'den içe aktarılan banka hareketleri)
-        # Aynı ay aynı sub için her iki kaynak varsa toplanır.
-        from app.models.ledger_entry import LedgerEntry, LedgerEntryType
-
+        # History rows for this sub
         contract_ids_stmt = select(SubcontractorContract.id).where(
             SubcontractorContract.subcontractor_id == sub.id
         )
-        sp_history = (await db.execute(
+        history_rows = (await db.execute(
             select(
                 func.to_char(func.date_trunc("month", SubcontractorPayment.payment_date), "YYYY-MM").label("month"),
                 func.coalesce(func.sum(SubcontractorPayment.amount), 0).label("amount"),
@@ -1508,28 +1503,6 @@ async def get_aggregate_cashflow_forecast(
             .group_by("month").order_by("month")
         )).all()
 
-        ledger_history = (await db.execute(
-            select(
-                func.to_char(func.date_trunc("month", LedgerEntry.entry_date), "YYYY-MM").label("month"),
-                func.coalesce(func.sum(LedgerEntry.amount), 0).label("amount"),
-            )
-            .where(
-                LedgerEntry.entry_type == LedgerEntryType.EXPENSE,
-                LedgerEntry.subcontractor_id == sub.id,
-            )
-            .group_by("month").order_by("month")
-        )).all()
-
-        # İki kaynağı tek dict'te topla
-        merged: dict[str, Decimal] = {}
-        for month, amt in sp_history:
-            if month:
-                merged[month] = merged.get(month, Decimal("0")) + Decimal(str(amt or 0))
-        for month, amt in ledger_history:
-            if month:
-                merged[month] = merged.get(month, Decimal("0")) + Decimal(str(amt or 0))
-        history_rows = sorted(merged.items())
-
         # Contracts for this sub (all statuses — engine filters)
         sub_contracts = (await db.execute(
             select(SubcontractorContract).where(
@@ -1540,25 +1513,17 @@ async def get_aggregate_cashflow_forecast(
         contract_dicts: list[dict] = []
         active_count_for_sub = 0
         for c in sub_contracts:
-            # SubcontractorPayment + LedgerEntry birleşik paid total
-            sp_paid = (await db.execute(
+            paid_total = (await db.execute(
                 select(func.coalesce(func.sum(SubcontractorPayment.amount), 0)).where(
                     SubcontractorPayment.contract_id == c.id,
                     SubcontractorPayment.status == PaymentStatus.PAID,
                 )
             )).scalar_one() or 0
-            ledger_paid = (await db.execute(
-                select(func.coalesce(func.sum(LedgerEntry.amount), 0)).where(
-                    LedgerEntry.entry_type == LedgerEntryType.EXPENSE,
-                    LedgerEntry.contract_id == c.id,
-                )
-            )).scalar_one() or 0
-            paid_total = Decimal(str(sp_paid)) + Decimal(str(ledger_paid))
             contract_dicts.append({
                 "id": c.id,
                 "label": c.contract_number or c.description[:40],
                 "contract_amount": c.contract_amount,
-                "total_paid": paid_total,
+                "total_paid": Decimal(str(paid_total)),
                 "end_date": c.end_date,
                 "status": c.status.value,
             })

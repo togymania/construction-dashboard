@@ -5,7 +5,6 @@ import { ArrowLeft, type LucideIcon } from "lucide-react";
 
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { useT } from "@/lib/i18n/provider";
 
 interface Props {
   icon: LucideIcon;
@@ -20,7 +19,6 @@ interface Props {
  * Premium look: large icon in a glass-tinted circle, big title, supportive copy.
  */
 export function ComingSoonPage({ icon: Icon, title, description, eta }: Props) {
-  const { t } = useT();
   return (
     <div className="min-h-[60vh] flex items-center justify-center">
       <Card className="max-w-lg w-full">
@@ -34,7 +32,7 @@ export function ComingSoonPage({ icon: Icon, title, description, eta }: Props) {
               {title}
             </h1>
             <p className="text-sm uppercase tracking-[0.2em] text-primary/70 font-semibold">
-              {t("pages.comingSoon")}
+              Coming Soon
             </p>
           </div>
 
@@ -44,14 +42,14 @@ export function ComingSoonPage({ icon: Icon, title, description, eta }: Props) {
 
           {eta && (
             <p className="text-xs text-muted-foreground/70 italic">
-              {t("comingSoon.eta")}: {eta}
+              Estimated release: {eta}
             </p>
           )}
 
           <Link href="/" className="inline-block pt-2">
             <Button variant="outline">
               <ArrowLeft className="h-4 w-4 mr-2" />
-              {t("comingSoon.backToDashboard")}
+              Back to dashboard
             </Button>
           </Link>
         </CardContent>

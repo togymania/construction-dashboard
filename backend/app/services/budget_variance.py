@@ -119,29 +119,6 @@ async def build_variance_report(
     total_committed = Decimal("0")
     total_actual = Decimal("0")
 
-    # Category-level ledger fallback: kullanıcı item-level cost_code yerine
-    # category slug ("bina", "yollar") atayabiliyor. Bu rakamı kategori
-    # içindeki kalemlere planlanan tutara orantılı dağıtırız ki per-item
-    # variance da bir şeyleri yansıtsın.
-    slug_rows = (await db.execute(select(BudgetCategory.slug, BudgetCategory.id))).all()
-    slug_to_cat: dict[str, int] = {
-        (s or "").strip().lower(): cid for s, cid in slug_rows if s
-    }
-    cat_level_actual: dict[int, tuple[Decimal, int]] = {}
-    for code, (amt, cnt) in ledger_by_code.items():
-        cat_id = slug_to_cat.get(code)
-        if cat_id is None:
-            continue
-        prev_amt, prev_cnt = cat_level_actual.get(cat_id, (Decimal("0"), 0))
-        cat_level_actual[cat_id] = (prev_amt + amt, prev_cnt + cnt)
-
-    # Planlanan toplam per category (orantılı dağıtım için)
-    planned_per_cat: dict[int, Decimal] = {}
-    for item, cat in rows:
-        planned_per_cat[cat.id] = planned_per_cat.get(cat.id, Decimal("0")) + (
-            item.planned_amount or Decimal("0")
-        )
-
     for item, cat in rows:
         e_total, e_cnt = expense_by_item.get(item.id, (Decimal("0"), 0))
         l_total = Decimal("0")
@@ -149,15 +126,6 @@ async def build_variance_report(
         if item.cost_code:
             key = item.cost_code.strip().lower()
             l_total, l_cnt = ledger_by_code.get(key, (Decimal("0"), 0))
-
-        # Category-level allocation share
-        cat_total, cat_cnt = cat_level_actual.get(cat.id, (Decimal("0"), 0))
-        if cat_total > 0:
-            cat_planned = planned_per_cat.get(cat.id, Decimal("0"))
-            if cat_planned > 0:
-                share = (item.planned_amount or Decimal("0")) / cat_planned
-                l_total += cat_total * share
-                l_cnt += cat_cnt  # count'u kategori toplamında bırak
 
         actual = e_total + l_total
         match_count = e_cnt + l_cnt

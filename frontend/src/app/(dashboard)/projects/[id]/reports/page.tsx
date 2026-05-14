@@ -29,14 +29,12 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
 import { api, ApiError } from "@/lib/api-client";
 import { useProject } from "@/components/providers/project-provider";
-import { useT } from "@/lib/i18n/provider";
 import type { ProjectExecutiveReport } from "@/types/project";
 
 export default function ProjectReportsPage() {
   const params = useParams<{ id: string }>();
   const projectId = parseInt(params.id, 10);
   const { project } = useProject();
-  const { t } = useT();
 
   const [report, setReport] = useState<ProjectExecutiveReport | null>(null);
   const [loading, setLoading] = useState(true);
@@ -52,7 +50,7 @@ export default function ProjectReportsPage() {
       setReport(data);
     } catch (e) {
       const msg =
-        e instanceof ApiError ? e.message : t("reports.errLoad");
+        e instanceof ApiError ? e.message : "Failed to load executive report";
       setError(msg);
       if (force) toast.error(msg);
     } finally {
@@ -87,11 +85,11 @@ export default function ProjectReportsPage() {
     return (
       <Card>
         <CardContent className="py-8 text-center text-sm text-muted-foreground">
-          {error || t("reports.noData")}
+          {error || "No report data."}
           <div className="mt-3">
             <Button size="sm" variant="outline" onClick={() => load(true)}>
               <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
-              {t("reports.retry")}
+              Retry
             </Button>
           </div>
         </CardContent>
@@ -99,7 +97,7 @@ export default function ProjectReportsPage() {
     );
   }
 
-  const sourceLabel = report.source === "llm" ? t("reports.aiGenerated") : t("reports.ruleBased");
+  const sourceLabel = report.source === "llm" ? "AI Generated" : "Rule-based";
 
   return (
     <div className="space-y-6">
@@ -109,7 +107,7 @@ export default function ProjectReportsPage() {
           <div className="flex items-start justify-between gap-3">
             <div className="space-y-1">
               <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
-                {t("reports.execLabel")}
+                Executive Report
               </p>
               <CardTitle className="text-2xl flex items-center gap-2">
                 <Sparkles className="h-5 w-5 text-primary" />
@@ -138,11 +136,11 @@ export default function ProjectReportsPage() {
                     refreshing ? "animate-spin" : ""
                   }`}
                 />
-                {t("reports.refresh")}
+                Yenile
               </Button>
               <Button size="sm" variant="default" onClick={handlePrint}>
                 <Printer className="h-3.5 w-3.5 mr-1.5" />
-                {t("reports.print")}
+                Yazdır / PDF
               </Button>
             </div>
           </div>
@@ -150,13 +148,13 @@ export default function ProjectReportsPage() {
         {project && (
           <CardContent>
             <div className="grid gap-3 grid-cols-2 md:grid-cols-4 text-sm">
-              <Meta label={t("reports.mStatus")} value={project.status} />
-              <Meta label={t("reports.mHealth")} value={project.health} />
+              <Meta label="Status" value={project.status} />
+              <Meta label="Health" value={project.health} />
               <Meta
-                label={t("reports.mProgress")}
+                label="Progress"
                 value={`%${parseFloat(project.progress_pct).toFixed(0)}`}
               />
-              <Meta label={t("reports.mLocation")} value={project.location} />
+              <Meta label="Location" value={project.location} />
             </div>
           </CardContent>
         )}
@@ -165,7 +163,7 @@ export default function ProjectReportsPage() {
       {/* Executive summary */}
       <ReportSection
         icon={<FileText className="h-4 w-4 text-primary" />}
-        title={t("reports.execSummary")}
+        title="Executive Summary"
         body={report.sections.executive_summary}
       />
 
@@ -173,12 +171,12 @@ export default function ProjectReportsPage() {
       <div className="grid gap-4 md:grid-cols-2">
         <ReportSection
           icon={<Wallet className="h-4 w-4 text-emerald-500" />}
-          title={t("reports.financialStatus")}
+          title="Mali Durum"
           body={report.sections.financial_status}
         />
         <ReportSection
           icon={<AlertTriangle className="h-4 w-4 text-amber-500" />}
-          title={t("reports.criticalRisks")}
+          title="Kritik Riskler"
           body={report.sections.critical_risks}
         />
       </div>
@@ -187,12 +185,12 @@ export default function ProjectReportsPage() {
       <div className="grid gap-4 md:grid-cols-2">
         <ReportSection
           icon={<HardHat className="h-4 w-4 text-blue-500" />}
-          title={t("reports.subPerf")}
+          title="Alt Yüklenici Performansı"
           body={report.sections.subcontractor_performance}
         />
         <ReportSection
           icon={<Users className="h-4 w-4 text-cyan-500" />}
-          title={t("reports.workforceHealth")}
+          title="İşgücü Sağlığı"
           body={report.sections.workforce_health}
         />
       </div>
@@ -200,7 +198,7 @@ export default function ProjectReportsPage() {
       {/* Forward-looking */}
       <ReportSection
         icon={<CalendarRange className="h-4 w-4 text-indigo-500" />}
-        title={t("reports.next30Days")}
+        title="Önümüzdeki 30 Gün"
         body={report.sections.next_30_days}
       />
 
@@ -209,13 +207,13 @@ export default function ProjectReportsPage() {
         <CardHeader className="pb-3">
           <CardTitle className="text-base flex items-center gap-2">
             <Lightbulb className="h-4 w-4 text-primary" />
-            {t("reports.recActions")}
+            Tavsiye Edilen Aksiyonlar
           </CardTitle>
         </CardHeader>
         <CardContent>
           {report.recommended_actions.length === 0 ? (
             <p className="text-sm text-muted-foreground italic">
-              {t("reports.noRecs")}
+              No specific recommendations.
             </p>
           ) : (
             <ul className="space-y-2">
@@ -233,7 +231,7 @@ export default function ProjectReportsPage() {
       <Separator />
 
       <p className="text-[10px] text-muted-foreground text-right">
-        {t("reports.generatedAt")} {new Date(report.generated_at).toLocaleString()} ·{" "}
+        Generated at {new Date(report.generated_at).toLocaleString()} ·{" "}
         {sourceLabel}
       </p>
     </div>

@@ -1,4 +1,4 @@
-export type ProjectStatus = "planning" | "active" | "on_hold" | "completed" | "cancelled";
+﻿export type ProjectStatus = "planning" | "active" | "on_hold" | "completed" | "cancelled";
 export type ProjectHealth = "on_track" | "at_risk" | "delayed";
 
 export interface ProjectOwner {
@@ -47,40 +47,86 @@ export interface ProjectExecutiveReport {
   source: "rule" | "llm";
 }
 
-// ---------- AI Project Analysis (v2 -- executive director) ----------
-//
-// The v2 payload is intentionally small: 8 compact KPIs plus a single
-// decisive verdict. The frontend renders the verdict prominently at
-// the top and the 8 KPIs as a compact grid below.
+// ---------- AI Project Analysis (6-section structured) ----------
 
-export type KPIStatusLevel = "ok" | "watch" | "critical" | "unknown";
+export type DataQualityRisk = "LOW" | "MEDIUM" | "HIGH";
+export type FinancialStatus = "OVER_BUDGET" | "ON_TRACK" | "UNDER_BUDGET" | "UNKNOWN";
+export type ProductivityStatus = "GOOD" | "AVERAGE" | "LOW" | "UNKNOWN";
+export type RiskLevel = "LOW" | "MEDIUM" | "HIGH";
+export type AIProjectStatus = "GOOD" | "WARNING" | "CRITICAL";
 
-export interface KPIStatus {
-  /** Stable identifier used by the frontend to bind i18n + icon. */
-  key: string;
-  /** Display-ready, pre-formatted value (e.g. "+14 d", "78 %"). */
-  value: string;
-  status: KPIStatusLevel;
-  /** English/Turkish fallback label from the backend. */
-  label: string;
-  /** Short single-sentence explanation. */
-  detail: string;
+export interface CriticalDelay {
+  subcontractor: string;
+  contract_id: number | null;
+  days: number;
+  reason: string;
 }
 
-export type VerdictLevel = "ON_TRACK" | "AT_RISK" | "CRITICAL" | "UNKNOWN";
-export type DataConfidence = "HIGH" | "MEDIUM" | "LOW";
+export interface DisciplineDelay {
+  discipline: string;
+  delayed_count: number;
+  delay_days: number;
+}
 
-export interface AIVerdict {
-  verdict: VerdictLevel;
-  headline: string;
-  key_drivers: string[];
-  critical_blocker: string;
-  impact_delay_days: number;
-  /** "time" | "cost" | "execution" — risk category. */
-  impact_summary: string;
-  data_confidence: DataConfidence;
-  data_confidence_note: string;
-  required_actions: string[];
+export interface ScheduleSection {
+  delayed_contracts: number;
+  total_contracts: number;
+  critical_delays: CriticalDelay[];
+  discipline_delays: DisciplineDelay[];
+  total_delay_days: number;
+}
+
+export interface SuggestedMatch {
+  entry_id: number | null;
+  description: string;
+  suggested_target: string;
+  confidence: number;
+}
+
+export interface DataQualitySection {
+  uncategorized_count: number;
+  unassigned_count: number;
+  suggested_matches: SuggestedMatch[];
+  risk_level: DataQualityRisk;
+}
+
+export interface FinancialSection {
+  progress_pct: number;
+  budget_used_pct: number;
+  bac: string | number;
+  ac: string | number;
+  eac: string | number;
+  variance: string | number;
+  status: FinancialStatus;
+}
+
+export interface ProductivitySection {
+  headcount: number;
+  man_hours: number;
+  productivity: number | null;
+  deviation_pct: number | null;
+  status: ProductivityStatus;
+}
+
+export interface TopRisk {
+  title: string;
+  impact: string;
+  cause: string;
+}
+
+export interface RiskSection {
+  overall_risk: RiskLevel;
+  predicted_delay_days: number;
+  top_risks: TopRisk[];
+}
+
+export interface ExecutiveSection {
+  project_status: AIProjectStatus;
+  biggest_problem: string;
+  financial_status: string;
+  schedule_status: string;
+  urgent_action: string;
+  summary: string;
 }
 
 export interface ProjectAIAnalysis {
@@ -88,6 +134,10 @@ export interface ProjectAIAnalysis {
   generated_at: string;
   lang: "EN" | "TR";
   source: "llm" | "rule";
-  kpis: KPIStatus[];
-  verdict: AIVerdict;
+  schedule: ScheduleSection;
+  data_quality: DataQualitySection;
+  financial: FinancialSection;
+  productivity: ProductivitySection;
+  risk: RiskSection;
+  executive: ExecutiveSection;
 }

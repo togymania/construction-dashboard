@@ -59,7 +59,7 @@ export default function TendersListPage() {
       const d = await api.tenders.listByProject(projectId);
       setItems(d);
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : t("tenders.loadFailed"));
+      setError(e instanceof ApiError ? e.message : "Failed to load tenders");
     }
   }
 
@@ -69,13 +69,13 @@ export default function TendersListPage() {
   }, [projectId]);
 
   async function handleDelete(id: number, title: string) {
-    if (!confirm(`${t("tenders.deleteConfirm")} "${title}"?`)) return;
+    if (!confirm(`Delete tender "${title}"?`)) return;
     try {
       await api.tenders.delete(id);
-      toast.success(t("tenders.deleteSuccess"));
+      toast.success("Tender deleted");
       load();
     } catch (e) {
-      toast.error(e instanceof ApiError ? e.message : t("tenders.deleteFailed"));
+      toast.error(e instanceof ApiError ? e.message : "Delete failed");
     }
   }
 
@@ -108,7 +108,7 @@ export default function TendersListPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">{t("tenders.allTenders")}</CardTitle>
+          <CardTitle className="text-base">All tenders</CardTitle>
         </CardHeader>
         <CardContent>
           {error ? (
@@ -121,34 +121,35 @@ export default function TendersListPage() {
             </div>
           ) : items.length === 0 ? (
             <div className="rounded-lg border border-dashed py-12 text-center text-sm text-muted-foreground">
-              {t("tenders.emptyPrompt")} <strong>{t("tenders.newTender")}</strong> {t("tenders.emptyPromptTail")}
+              No tenders yet. Click <strong>New Tender</strong> to upload a
+              quotation file or create one by hand.
             </div>
           ) : (
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>{t("tenders.colTitle")}</TableHead>
-                  <TableHead>{t("tenders.colStatus")}</TableHead>
-                  <TableHead className="text-right">{t("tenders.colItems")}</TableHead>
-                  <TableHead className="text-right">{t("tenders.colBids")}</TableHead>
-                  <TableHead>{t("tenders.colLowest")}</TableHead>
-                  <TableHead>{t("tenders.colCreated")}</TableHead>
+                  <TableHead>Title</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead className="text-right">Items</TableHead>
+                  <TableHead className="text-right">Bids</TableHead>
+                  <TableHead>Lowest</TableHead>
+                  <TableHead>Created</TableHead>
                   <TableHead></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {items.map((tn) => (
+                {items.map((t) => (
                   <TableRow
-                    key={tn.id}
+                    key={t.id}
                     className="cursor-pointer hover:bg-muted/40"
                   >
                     <TableCell>
                       <Link
-                        href={`/projects/${projectId}/tenders/${tn.id}`}
+                        href={`/projects/${projectId}/tenders/${t.id}`}
                         className="font-medium hover:underline"
                       >
-                        {tn.title}
-                        {tn.awarded_bid_id ? (
+                        {t.title}
+                        {t.awarded_bid_id ? (
                           <Trophy className="ml-2 inline h-3 w-3 text-amber-500" />
                         ) : null}
                       </Link>
@@ -156,28 +157,28 @@ export default function TendersListPage() {
                     <TableCell>
                       <Badge
                         variant="outline"
-                        className={statusBadgeClass(tn.status)}
+                        className={statusBadgeClass(t.status)}
                       >
-                        {tn.status}
+                        {t.status}
                       </Badge>
                     </TableCell>
                     <TableCell className="text-right">
-                      {tn.line_item_count}
+                      {t.line_item_count}
                     </TableCell>
                     <TableCell className="text-right">
                       <span className="inline-flex items-center gap-1">
                         <Users className="h-3 w-3 text-muted-foreground" />
-                        {tn.bid_count}
+                        {t.bid_count}
                       </span>
                     </TableCell>
                     <TableCell>
-                      {tn.lowest_bid_amount ? (
+                      {t.lowest_bid_amount ? (
                         <span>
                           <span className="font-medium">
-                            {formatRubCompact(tn.lowest_bid_amount)}
+                            {formatRubCompact(t.lowest_bid_amount)}
                           </span>
                           <span className="ml-1 text-xs text-muted-foreground">
-                            ({tn.lowest_bid_company})
+                            ({t.lowest_bid_company})
                           </span>
                         </span>
                       ) : (
@@ -185,17 +186,17 @@ export default function TendersListPage() {
                       )}
                     </TableCell>
                     <TableCell className="text-xs text-muted-foreground">
-                      {new Date(tn.created_at).toLocaleDateString("en-GB")}
+                      {new Date(t.created_at).toLocaleDateString()}
                     </TableCell>
                     <TableCell>
                       {canEdit ? (
                         <button
                           onClick={(e) => {
                             e.preventDefault();
-                            handleDelete(tn.id, tn.title);
+                            handleDelete(t.id, t.title);
                           }}
                           className="text-muted-foreground transition hover:text-rose-500"
-                          title={t("tenders.deleteConfirm")}
+                          title="Delete tender"
                         >
                           <Trash2 className="h-4 w-4" />
                         </button>

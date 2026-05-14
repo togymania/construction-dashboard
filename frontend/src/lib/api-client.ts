@@ -816,3 +816,9 @@ export const api = {
       ),
   },
 };
+
+aymentEntry[]>(
+        "/ledger/by-subcontractor/" + subcontractorId
+      ),
+  },
+};

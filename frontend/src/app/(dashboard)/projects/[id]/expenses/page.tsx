@@ -65,7 +65,6 @@ import type {
   LedgerEntry,
   LedgerStats,
 } from "@/types/ledger";
-import type { FinancialSummary } from "@/types/financial-summary";
 import type { BudgetCategory } from "@/types/budget";
 import type { SubcontractorListItem } from "@/types/subcontractor";
 
@@ -98,7 +97,7 @@ function kodColor(kod: string | null): string {
 
 function formatDate(iso: string): string {
   const d = new Date(iso);
-  return d.toLocaleDateString("en-GB", { day: "2-digit", month: "2-digit", year: "numeric" });
+  return d.toLocaleDateString("tr-TR", { day: "2-digit", month: "2-digit", year: "numeric" });
 }
 
 export default function ExpensesPage() {
@@ -120,11 +119,6 @@ export default function ExpensesPage() {
   // contains both Gelir-Gider and OZET sheets, so a ledger import may
   // have updated the FinancialSummary row as a side effect).
   const [ozetRefreshKey, setOzetRefreshKey] = useState(0);
-  // OZET özet verisi — yukarıdaki Gelir/Gider/Net KPI'ları bu satırlardan
-  // hesaplanıyor (positives → gelir, negatives → gider). Fallback: stats.
-  const [ozetSummaries, setOzetSummaries] = useState<FinancialSummary[] | null>(
-    null,
-  );
 
   const [tab, setTab] = useState<TabKey>("all");
   const [kodFilter, setKodFilter] = useState<string>("all");
@@ -198,23 +192,6 @@ export default function ExpensesPage() {
     return () => clearTimeout(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search]);
-
-  // OZET summaries — yukarı KPI'lar buradan gelir
-  useEffect(() => {
-    if (projectId <= 0) return;
-    let cancelled = false;
-    api.financialSummary
-      .list(projectId)
-      .then((data) => {
-        if (!cancelled) setOzetSummaries(data);
-      })
-      .catch(() => {
-        if (!cancelled) setOzetSummaries([]);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [projectId, ozetRefreshKey]);
 
   function handleImportComplete() {
     setImportOpen(false);
@@ -376,62 +353,6 @@ export default function ExpensesPage() {
     sortedEntries.every((e) => selectedIds.has(e.id));
 
   const kpis = useMemo(() => {
-    // Tercih edilen kaynak: OZET satırları (her şirket için Finansal Özet
-    // tablosundan). Yeşil rakamlar (pozitif değerler) toplanarak Toplam
-    // Gelir, kırmızı rakamlar (negatifler) toplanarak Toplam Gider elde
-    // edilir. VERGI ODEMELERI altındaki Gelir Vergisi + KDV sub-item'lar
-    // ve TOPLAM sütunu çift saymamak için hariç tutulur.
-    if (ozetSummaries && ozetSummaries.length > 0) {
-      // Sub-item ve roll-up alanları dışındaki tüm kalemler:
-      const PARENT_FIELDS = [
-        "isveren_tahsilatlari",
-        "firma_odemeleri",
-        "ucret_giderleri",
-        "vergi_odemeleri",
-        "faiz_gelirleri",
-        "banka_giderleri",
-        "diger_gelir_giderler",
-      ] as const;
-
-      let gelir = 0;
-      let gider = 0;
-      for (const s of ozetSummaries) {
-        for (const f of PARENT_FIELDS) {
-          const raw = s[f];
-          const n = typeof raw === "string" ? parseFloat(raw) : Number(raw);
-          if (!isFinite(n) || n === 0) continue;
-          if (n > 0) gelir += n;
-          else gider += -n; // store as positive
-        }
-      }
-      const net = gelir - gider;
-
-      return [
-        {
-          label: t("expenses.kpi.totalIncome"),
-          value: gelir.toString(),
-          icon: TrendingUp,
-          accent: "text-emerald-600 dark:text-emerald-400",
-        },
-        {
-          label: t("expenses.kpi.totalExpense"),
-          value: gider.toString(),
-          icon: TrendingDown,
-          accent: "text-rose-600 dark:text-rose-400",
-        },
-        {
-          label: t("expenses.kpi.net"),
-          value: net.toString(),
-          icon: ArrowDownUp,
-          accent:
-            net >= 0
-              ? "text-emerald-600 dark:text-emerald-400"
-              : "text-rose-600 dark:text-rose-400",
-        },
-      ];
-    }
-
-    // OZET yoksa ledger stats'a düş (geriye dönük uyum)
     if (!stats) return null;
     return [
       {
@@ -456,7 +377,7 @@ export default function ExpensesPage() {
             : "text-rose-600 dark:text-rose-400",
       },
     ];
-  }, [stats, ozetSummaries, t]);
+  }, [stats, t]);
 
   return (
     <div className="space-y-6 p-6">
@@ -1077,4 +998,3 @@ function SortHeader({
     </button>
   );
 }
- 

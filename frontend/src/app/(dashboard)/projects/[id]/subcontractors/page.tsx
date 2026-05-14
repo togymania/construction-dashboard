@@ -183,7 +183,7 @@ export default function SubcontractorsPage() {
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder={t("subs.searchPlaceholder")}
+                placeholder="Search by name, tax ID, contact..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 className="pl-9"
@@ -191,20 +191,20 @@ export default function SubcontractorsPage() {
             </div>
             <Select value={statusFilter} onValueChange={setStatusFilter}>
               <SelectTrigger>
-                <SelectValue placeholder={t("subs.allStatuses")} />
+                <SelectValue placeholder="All statuses" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">{t("subs.allStatuses")}</SelectItem>
-                <SelectItem value="active">{t("status.active")}</SelectItem>
-                <SelectItem value="suspended">{t("status.suspended")}</SelectItem>
-                <SelectItem value="blacklisted">{t("status.blacklisted")}</SelectItem>
+                <SelectItem value="all">All statuses</SelectItem>
+                <SelectItem value="active">Active</SelectItem>
+                <SelectItem value="suspended">Suspended</SelectItem>
+                <SelectItem value="blacklisted">Blacklisted</SelectItem>
               </SelectContent>
             </Select>
             <SpecializationCombobox
               options={specOptions}
               value={specFilter}
               onChange={setSpecFilter}
-              placeholder={t("subs.allSpecializations")}
+              placeholder="All specializations..."
             />
           </div>
         </CardContent>
@@ -214,7 +214,7 @@ export default function SubcontractorsPage() {
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle className="text-base">
-            {items === null ? t("status.loading") : `${totalShown} ${t("subs.totalSubcontractors").toLowerCase()}`}
+            {items === null ? "Loading..." : `${totalShown} subcontractor${totalShown === 1 ? "" : "s"}`}
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -231,18 +231,18 @@ export default function SubcontractorsPage() {
           ) : items.length === 0 ? (
             <div className="text-center py-12 text-muted-foreground">
               <HardHat className="h-12 w-12 mx-auto mb-4 opacity-30" />
-              <p>{t("subs.emptyHint")}</p>
+              <p>No subcontractors match your filters.</p>
             </div>
           ) : (
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>{t("subs.colName")}</TableHead>
-                  <TableHead>{t("subs.colSpecialization")}</TableHead>
-                  <TableHead>{t("subs.colStatus")}</TableHead>
-                  <TableHead className="text-right">{t("subs.activeContracts")}</TableHead>
-                  <TableHead className="text-right">{t("subs.totalContractValue")}</TableHead>
-                  <TableHead>{t("subs.colActions")}</TableHead>
+                  <TableHead>Name</TableHead>
+                  <TableHead>Specialization</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead className="text-right">Active Contracts</TableHead>
+                  <TableHead className="text-right">Total Value</TableHead>
+                  <TableHead>Rating</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -260,7 +260,7 @@ export default function SubcontractorsPage() {
                       </Link>
                       {item.tax_id && (
                         <div className="text-xs text-muted-foreground">
-                          {t("subs.taxId")}: {item.tax_id}
+                          Tax ID: {item.tax_id}
                         </div>
                       )}
                     </TableCell>

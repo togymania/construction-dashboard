@@ -39,10 +39,10 @@ const PROJECT_NAV: NavItem[] = [
   { tKey: "nav.workforce", fallback: "Workforce", segment: "workforce", icon: Users },
   { tKey: "nav.budget", fallback: "Budget", segment: "budget", icon: Wallet },
   { tKey: "nav.expenses", fallback: "Expenses", segment: "expenses", icon: Receipt },
-  { tKey: "nav.tenders", fallback: "Tenders", segment: "tenders", icon: Gavel },
   { tKey: "nav.schedule", fallback: "Schedule", segment: "schedule", icon: Calendar },
   { tKey: "nav.risks", fallback: "Risks", segment: "risks", icon: AlertTriangle },
   { tKey: "nav.reports", fallback: "Reports", segment: "reports", icon: FileBarChart },
+  { tKey: "nav.tenders", fallback: "Tenders", segment: "tenders", icon: Gavel },
   { tKey: "nav.aiAnalysis", fallback: "AI Analysis", segment: "ai-analysis", icon: Sparkles },
 ];
 

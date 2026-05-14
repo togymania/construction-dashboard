@@ -94,7 +94,6 @@ import type {
   Expense,
 } from "@/types/budget";
 import { useUser } from "@/components/providers/user-provider";
-import { useT } from "@/lib/i18n/provider";
 import { BudgetItemFormDialog } from "@/components/budget-items/budget-item-form-dialog";
 import { BudgetItemImportDialog } from "@/components/budget-items/budget-item-import-dialog";
 import { BudgetVarianceTab } from "@/components/budget-items/variance-tab";
@@ -121,7 +120,6 @@ export default function ProjectBudgetPage() {
   const params = useParams();
   const router = useRouter();
   const { user } = useUser();
-  const { t } = useT();
   const projectId = parseInt(params.id as string, 10);
 
   const [project, setProject] = useState<Project | null>(null);
@@ -130,10 +128,6 @@ export default function ProjectBudgetPage() {
   const [categories, setCategories] = useState<BudgetCategory[]>([]);
   const [expenses, setExpenses] = useState<Expense[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  // OZET'ten gelen finansal özet — Total Spent KPI'ı buradan hesaplanıyor
-  const [ozetSummaries, setOzetSummaries] = useState<
-    import("@/types/financial-summary").FinancialSummary[] | null
-  >(null);
 
   // Budget Item dialogs
   const [formOpen, setFormOpen] = useState(false);
@@ -173,49 +167,23 @@ export default function ProjectBudgetPage() {
   async function loadAll() {
     if (isNaN(projectId)) return;
     try {
-      const [proj, itemList, summ, cats, expList, ozet] = await Promise.all([
+      const [proj, itemList, summ, cats, expList] = await Promise.all([
         api.projects.get(projectId),
         api.budgetItems.listForProject(projectId),
         api.budgetItems.summaryForProject(projectId),
         api.budgetCategories.list(),
         api.expenses.listForProject(projectId),
-        api.financialSummary.list(projectId).catch(() => []),
       ]);
       setProject(proj);
       setItems(itemList);
       setSummary(summ);
       setCategories(cats);
       setExpenses(expList);
-      setOzetSummaries(ozet);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load budget");
     }
   }
-
-  // OZET-türetilmiş Toplam Gider — Harcamalar sayfasındaki Finansal Özet
-  // kartlarındaki kırmızı (negatif) kalemlerin toplamı. OZET yoksa eski
-  // ledger-bazlı summary.total_spent'a düşer.
-  const ozetTotalSpent = useMemo(() => {
-    if (!ozetSummaries || ozetSummaries.length === 0) return null;
-    const PARENT_EXPENSE_FIELDS = [
-      "firma_odemeleri",
-      "ucret_giderleri",
-      "vergi_odemeleri",
-      "banka_giderleri",
-      "diger_gelir_giderler",
-    ] as const;
-    let gider = 0;
-    for (const s of ozetSummaries) {
-      for (const f of PARENT_EXPENSE_FIELDS) {
-        const raw = s[f as keyof typeof s];
-        const n = typeof raw === "string" ? parseFloat(raw) : Number(raw);
-        if (!isFinite(n) || n >= 0) continue;
-        gider += -n;
-      }
-    }
-    return gider;
-  }, [ozetSummaries]);
 
   useEffect(() => {
     loadAll();
@@ -327,18 +295,7 @@ export default function ProjectBudgetPage() {
     }));
   }, [summary]);
 
-  // Utilization de OZET-bazlı Total Spent ile tutarlı olsun
-  const utilizationPct = useMemo(() => {
-    if (ozetTotalSpent !== null && summary?.total_planned) {
-      const planned = parseFloat(summary.total_planned);
-      if (planned > 0) return (ozetTotalSpent / planned) * 100;
-    }
-    return summary?.utilization_pct ?? 0;
-  }, [ozetTotalSpent, summary]);
-  const ozetRemaining = useMemo(() => {
-    if (ozetTotalSpent === null || !summary?.total_planned) return null;
-    return parseFloat(summary.total_planned) - ozetTotalSpent;
-  }, [ozetTotalSpent, summary]);
+  const utilizationPct = summary?.utilization_pct ?? 0;
   const utilizationColor =
     utilizationPct < 80
       ? "text-green-600 dark:text-green-500"
@@ -366,7 +323,7 @@ export default function ProjectBudgetPage() {
     return (
       <div className="space-y-4">
         <Button variant="ghost" size="sm" onClick={() => router.push("/projects")}>
-          <ArrowLeft className="mr-2 h-4 w-4" /> {t("budget.backToProjects")}
+          <ArrowLeft className="mr-2 h-4 w-4" /> Back to projects
         </Button>
         <Card>
           <CardContent className="flex flex-col items-center justify-center gap-3 py-16 text-muted-foreground">
@@ -382,13 +339,13 @@ export default function ProjectBudgetPage() {
     <div className="space-y-6">
       <div>
         <Button variant="ghost" size="sm" onClick={() => router.push("/projects")}>
-          <ArrowLeft className="mr-2 h-4 w-4" /> {t("budget.backToProjects")}
+          <ArrowLeft className="mr-2 h-4 w-4" /> Back to projects
         </Button>
         <div className="flex items-center justify-between gap-4 mt-2">
           <div>
             <h2 className="text-2xl font-semibold tracking-tight">{project?.name}</h2>
             <p className="text-sm text-muted-foreground mt-1">
-              {project?.location} &middot; {t("budget.breakdown")}
+              {project?.location} &middot; Budget breakdown
             </p>
           </div>
         </div>
@@ -399,21 +356,21 @@ export default function ProjectBudgetPage() {
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-              {t("budget.projectBudget")}
+              Project Budget
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-semibold">
               {formatRubCompact(project?.budget_rub)}
             </div>
-            <p className="text-xs text-muted-foreground mt-1">{t("budget.approvedCap")}</p>
+            <p className="text-xs text-muted-foreground mt-1">Approved cap</p>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-              {t("budget.totalPlanned")}
+              Total Planned
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -421,7 +378,7 @@ export default function ProjectBudgetPage() {
               {formatRubCompact(summary?.total_planned)}
             </div>
             <p className="text-xs text-muted-foreground mt-1">
-              {t("budget.across")} {items?.length ?? 0} {t("budget.lineItems")}
+              Across {items?.length ?? 0} line items
             </p>
           </CardContent>
         </Card>
@@ -429,15 +386,15 @@ export default function ProjectBudgetPage() {
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-              {t("budget.totalSpent")}
+              Total Spent
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-semibold">
-              {formatRubCompact(ozetTotalSpent ?? summary?.total_spent)}
+              {formatRubCompact(summary?.total_spent)}
             </div>
             <p className="text-xs text-muted-foreground mt-1">
-              {(summary?.expense_records_count ?? 0).toLocaleString()} {t("budget.expenseRecords")}
+              {(summary?.expense_records_count ?? 0).toLocaleString()} expense records
             </p>
           </CardContent>
         </Card>
@@ -445,7 +402,7 @@ export default function ProjectBudgetPage() {
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-              {t("budget.utilization")}
+              Utilization
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -453,7 +410,7 @@ export default function ProjectBudgetPage() {
               {formatPercent(utilizationPct)}
             </div>
             <p className="text-xs text-muted-foreground mt-1">
-              {formatRubCompact(ozetRemaining ?? summary?.remaining)} {t("budget.remaining").toLowerCase()}
+              {formatRubCompact(summary?.remaining)} remaining
             </p>
           </CardContent>
         </Card>
@@ -464,7 +421,7 @@ export default function ProjectBudgetPage() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           <Card>
             <CardHeader>
-              <CardTitle className="text-base font-medium">{t("budget.plannedByCategory")}</CardTitle>
+              <CardTitle className="text-base font-medium">Planned by Category</CardTitle>
             </CardHeader>
             <CardContent>
               <ResponsiveContainer width="100%" height={280}>
@@ -508,7 +465,7 @@ export default function ProjectBudgetPage() {
 
           <Card>
             <CardHeader>
-              <CardTitle className="text-base font-medium">{t("budget.plannedVsSpent")}</CardTitle>
+              <CardTitle className="text-base font-medium">Planned vs Spent</CardTitle>
             </CardHeader>
             <CardContent>
               <ResponsiveContainer width="100%" height={280}>
@@ -532,8 +489,8 @@ export default function ProjectBudgetPage() {
                     contentStyle={{ fontSize: 12 }}
                   />
                   <Legend wrapperStyle={{ fontSize: 12 }} />
-                  <Bar dataKey="Planned" fill="#3b82f6" name={t("budget.planned")} />
-                  <Bar dataKey="Spent" fill="#10b981" name={t("budget.actual")} />
+                  <Bar dataKey="Planned" fill="#3b82f6" />
+                  <Bar dataKey="Spent" fill="#10b981" />
                 </BarChart>
               </ResponsiveContainer>
             </CardContent>
@@ -545,7 +502,7 @@ export default function ProjectBudgetPage() {
       <Tabs defaultValue="budget-items" className="space-y-4">
         <TabsList>
           <TabsTrigger value="budget-items">
-            {t("budget.tabs.items")}
+            Budget Items
             {items && items.length > 0 && (
               <Badge variant="secondary" className="ml-2 text-xs">
                 {items.length}
@@ -554,11 +511,11 @@ export default function ProjectBudgetPage() {
           </TabsTrigger>
           <TabsTrigger value="variance">
             <TrendingUp className="h-4 w-4 mr-2" />
-            {t("budget.plannedVsActual")}
+            Planned vs Actual
           </TabsTrigger>
           <TabsTrigger value="subcontractors" onClick={loadSubContracts}>
             <HardHat className="h-4 w-4 mr-2" />
-            {t("budget.subcontractorsTab")}
+            Subcontractors
           </TabsTrigger>
         </TabsList>
 
@@ -572,7 +529,7 @@ export default function ProjectBudgetPage() {
         <TabsContent value="budget-items">
           <Card>
             <CardHeader className="pb-4 flex flex-row items-center justify-between">
-              <CardTitle className="text-base font-medium">{t("budget.tabs.items")}</CardTitle>
+              <CardTitle className="text-base font-medium">Budget Items</CardTitle>
               {canManage && (
                 <div className="flex gap-2">
                   <Button
@@ -581,11 +538,11 @@ export default function ProjectBudgetPage() {
                     onClick={() => setItemImportOpen(true)}
                   >
                     <Upload className="mr-2 h-4 w-4" />
-                    {t("budget.importBtn")}
+                    Import
                   </Button>
                   <Button size="sm" onClick={handleCreate}>
                     <Plus className="mr-2 h-4 w-4" />
-                    {t("budget.addBudgetItem")}
+                    Add Budget Item
                   </Button>
                 </div>
               )}
@@ -598,10 +555,10 @@ export default function ProjectBudgetPage() {
               ) : items.length === 0 ? (
                 <div className="flex flex-col items-center justify-center gap-2 py-16 text-muted-foreground">
                   <Wallet className="h-8 w-8" />
-                  <p className="text-sm">{t("budget.empty")}</p>
+                  <p className="text-sm">No budget items yet.</p>
                   {canManage && (
                     <Button variant="outline" size="sm" onClick={handleCreate} className="mt-2">
-                      <Plus className="mr-2 h-4 w-4" /> {t("budget.addFirst")}
+                      <Plus className="mr-2 h-4 w-4" /> Add the first one
                     </Button>
                   )}
                 </div>
@@ -609,9 +566,9 @@ export default function ProjectBudgetPage() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>{t("budget.colDescription")}</TableHead>
-                      <TableHead className="w-[120px]">{t("budget.colNotes")}</TableHead>
-                      <TableHead className="text-right w-[200px]">{t("budget.colPlannedAmount")}</TableHead>
+                      <TableHead>Description</TableHead>
+                      <TableHead className="w-[120px]">Notes</TableHead>
+                      <TableHead className="text-right w-[200px]">Planned Amount</TableHead>
                       <TableHead className="w-[40px]"></TableHead>
                     </TableRow>
                   </TableHeader>
@@ -647,17 +604,17 @@ export default function ProjectBudgetPage() {
                                   {canManage ? (
                                     <>
                                       <DropdownMenuItem onClick={() => handleEdit(item)}>
-                                        {t("buttons.edit")}
+                                        Edit
                                       </DropdownMenuItem>
                                       <DropdownMenuItem
                                         onClick={() => setDeletingItem(item)}
                                         className="text-destructive focus:text-destructive"
                                       >
-                                        {t("buttons.delete")}
+                                        Delete
                                       </DropdownMenuItem>
                                     </>
                                   ) : (
-                                    <DropdownMenuItem disabled>{t("budget.noActions")}</DropdownMenuItem>
+                                    <DropdownMenuItem disabled>No actions available</DropdownMenuItem>
                                   )}
                                 </DropdownMenuContent>
                               </DropdownMenu>
@@ -840,7 +797,7 @@ export default function ProjectBudgetPage() {
             <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle className="text-base flex items-center gap-2">
                 <HardHat className="h-4 w-4" />
-                {t("budget.subContractsOnProject")}
+                Subcontractor Contracts on This Project
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -853,24 +810,24 @@ export default function ProjectBudgetPage() {
               ) : subContracts.length === 0 ? (
                 <div className="text-center py-12 text-muted-foreground">
                   <HardHat className="h-10 w-10 mx-auto mb-3 opacity-30" />
-                  <p>{t("budget.noContractsYet")}</p>
+                  <p>No subcontractor contracts on this project yet.</p>
                   <Link
                     href={`/projects/${projectId}/subcontractors`}
                     className="text-primary text-sm hover:underline mt-2 inline-block"
                   >
-                    {t("budget.goToSubs")} &rarr;
+                    Go to subcontractors directory &rarr;
                   </Link>
                 </div>
               ) : (
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>{t("budget.colSubcontractor")}</TableHead>
-                      <TableHead>{t("budget.colContractNo")}</TableHead>
-                      <TableHead>{t("budget.colDescription")}</TableHead>
-                      <TableHead>{t("subs.colStatus")}</TableHead>
-                      <TableHead className="text-right">{t("budget.colAmount")}</TableHead>
-                      <TableHead className="text-right">{t("budget.colPaid")}</TableHead>
+                      <TableHead>Subcontractor</TableHead>
+                      <TableHead>Contract #</TableHead>
+                      <TableHead>Description</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead className="text-right">Amount</TableHead>
+                      <TableHead className="text-right">Paid</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -925,7 +882,7 @@ export default function ProjectBudgetPage() {
                               {c.is_overdue && (
                                 <span className="inline-flex items-center gap-1 text-[10px] text-red-600 dark:text-red-400 font-medium">
                                   <AlertCircle className="h-2.5 w-2.5" />
-                                  {t("budget.overdue")}
+                                  Overdue
                                 </span>
                               )}
                             </div>
@@ -952,7 +909,7 @@ export default function ProjectBudgetPage() {
             <Card>
               <CardContent className="pt-6 grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
                 <div>
-                  <p className="text-muted-foreground text-xs">{t("budget.totalContractValue")}</p>
+                  <p className="text-muted-foreground text-xs">Total Contract Value</p>
                   <p className="font-semibold text-lg">
                     {formatRub(
                       subContracts.reduce(
@@ -963,7 +920,7 @@ export default function ProjectBudgetPage() {
                   </p>
                 </div>
                 <div>
-                  <p className="text-muted-foreground text-xs">{t("budget.totalPaid")}</p>
+                  <p className="text-muted-foreground text-xs">Total Paid</p>
                   <p className="font-semibold text-lg text-emerald-600 dark:text-emerald-400">
                     {formatRub(
                       subContracts.reduce(
@@ -974,7 +931,7 @@ export default function ProjectBudgetPage() {
                   </p>
                 </div>
                 <div>
-                  <p className="text-muted-foreground text-xs">{t("budget.totalPending")}</p>
+                  <p className="text-muted-foreground text-xs">Total Pending / Approved</p>
                   <p className="font-semibold text-lg text-amber-600 dark:text-amber-400">
                     {formatRub(
                       subContracts.reduce(
@@ -1016,22 +973,23 @@ export default function ProjectBudgetPage() {
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>{t("budget.deleteItemTitle")}</AlertDialogTitle>
+            <AlertDialogTitle>Delete this budget item?</AlertDialogTitle>
             <AlertDialogDescription>
               <span className="font-medium text-foreground">
                 {deletingItem?.description}
               </span>{" "}
-              {t("budget.deleteItemDesc")}
+              will be permanently removed. Linked expenses will keep their amounts but
+              lose the connection to this line item.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={isDeleting}>{t("budget.cancelBtn")}</AlertDialogCancel>
+            <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={handleConfirmDelete}
               disabled={isDeleting}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
-              {isDeleting ? t("budget.deleting") : t("budget.deleteBtn")}
+              {isDeleting ? "Deleting..." : "Delete"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -1064,7 +1022,7 @@ export default function ProjectBudgetPage() {
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>{t("budget.deleteItemTitle")}</AlertDialogTitle>
+            <AlertDialogTitle>Delete this expense?</AlertDialogTitle>
             <AlertDialogDescription>
               <span className="font-medium text-foreground">
                 {deletingExpense?.description}
@@ -1082,13 +1040,13 @@ export default function ProjectBudgetPage() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={isDeletingExpense}>{t("budget.cancelBtn")}</AlertDialogCancel>
+            <AlertDialogCancel disabled={isDeletingExpense}>Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={handleConfirmDeleteExpense}
               disabled={isDeletingExpense}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
-              {isDeletingExpense ? t("budget.deleting") : t("budget.deleteBtn")}
+              {isDeletingExpense ? "Deleting..." : "Delete"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
