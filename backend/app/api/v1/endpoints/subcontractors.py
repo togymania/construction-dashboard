@@ -1486,44 +1486,14 @@ async def get_aggregate_cashflow_forecast(
     insufficient_count = 0
     confidence_weights: list[tuple[float, float]] = []  # (confidence, weight)
 
-    # Project-wide pooled ledger expense history — surface harcamalar even when
-    # entries are not yet linked to a subcontractor. Without this, the chart
-    # ends up empty for projects where most ledger rows are unlinked.
-    from app.models.ledger_entry import LedgerEntry as _LE, LedgerEntryType as _LET
-    pooled_rows = (await db.execute(
-        select(
-            func.to_char(func.date_trunc("month", _LE.entry_date), "YYYY-MM").label("month"),
-            func.coalesce(func.sum(_LE.amount), 0).label("amount"),
-        )
-        .where(
-            _LE.entry_type == _LET.EXPENSE,
-            _LE.subcontractor_id.is_(None),
-        )
-        .group_by("month").order_by("month")
-    )).all()
-    for _month, _amt in pooled_rows:
-        if _month:
-            hist_by_month[_month] = hist_by_month.get(_month, Decimal("0")) + Decimal(str(_amt or 0))
-
-    # Simple project-level forecast from the pooled history: average of last 3
-    # non-zero months projected forward, with ±20% best/worst bands. This is
-    # added to whatever per-sub forecast comes out below.
-    pooled_values = [Decimal(str(a or 0)) for _, a in pooled_rows if a and Decimal(str(a)) > 0]
-    if pooled_values:
-        last_3 = pooled_values[-3:]
-        base_avg = sum(last_3) / Decimal(len(last_3))
-        from datetime import date as _date
-        _today = _date.today()
-        for i in range(1, 4):
-            total_idx = _today.year * 12 + (_today.month - 1) + i
-            y, m0 = divmod(total_idx, 12)
-            fmonth = _date(y, m0 + 1, 1).strftime("%Y-%m")
-            fc_likely[fmonth] = fc_likely.get(fmonth, Decimal("0")) + base_avg
-            fc_best[fmonth] = fc_best.get(fmonth, Decimal("0")) + (base_avg * Decimal("1.2"))
-            fc_worst[fmonth] = fc_worst.get(fmonth, Decimal("0")) + (base_avg * Decimal("0.7"))
-            fc_season.setdefault(fmonth, []).append(1.0)
-        # Boost aggregate confidence with the pooled data weight.
-        confidence_weights.append((0.6, float(base_avg) * 3))
+    # NOT: Daha önce buraya taşerona bağlı olmayan tüm ledger expense
+    # satırlarını da forecast'a katan bir "pooled history" bloğu vardı.
+    # Bu, taşeron-bazlı nakit akışı tahminini ~3.5B gibi şişirip vergi,
+    # banka, ücret gibi taşeron olmayan harcamaları da içine katıyordu.
+    # Kullanıcı bu kısmı sadece taşeron ödemelerine göre çalışsın istedi —
+    # pooled-history bloğu kaldırıldı. History ve forecast artık aşağıdaki
+    # per-sub döngüsünde sadece SubcontractorPayment + LedgerEntry
+    # (subcontractor_id IS NOT NULL) kaynaklarından toplanır.
 
     for sub in subs:
         # History rows for this sub — birleşik kaynak:
