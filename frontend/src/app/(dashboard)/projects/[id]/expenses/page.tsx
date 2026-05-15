@@ -804,11 +804,11 @@ export default function ExpensesPage() {
                         <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
                           {formatDate(e.entry_date)}
                         </TableCell>
-                        <TableCell className="text-sm font-medium">
+                        <TableCell className="text-sm font-medium max-w-0">
                           <button
                             type="button"
-                            className="block truncate text-left hover:text-primary transition-colors"
-                            title={`Click to select all rows for ${e.company_name || "this company"}`}
+                            className="block w-full truncate text-left hover:text-primary transition-colors"
+                            title={`${e.company_name || "this company"}`}
                             onClick={() => selectByCompany(e.company_name)}
                           >
                             {e.company_name || "—"}
@@ -829,11 +829,13 @@ export default function ExpensesPage() {
                             <span className="text-xs text-muted-foreground">—</span>
                           )}
                         </TableCell>
-                        <TableCell className="text-xs text-muted-foreground truncate">
-                          {e.account || "—"}
+                        <TableCell className="text-xs text-muted-foreground max-w-0">
+                          <span className="block w-full truncate" title={e.account || undefined}>
+                            {e.account || "—"}
+                          </span>
                         </TableCell>
-                        <TableCell className="text-xs text-muted-foreground">
-                          <span className="block truncate" title={e.description || undefined}>
+                        <TableCell className="text-xs text-muted-foreground max-w-0">
+                          <span className="block w-full truncate" title={e.description || undefined}>
                             {e.description || "—"}
                           </span>
                         </TableCell>
