@@ -11,7 +11,12 @@ normalise.
 """
 from __future__ import annotations
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# The built-in development secret. It is committed and therefore public,
+# so it must never be used to sign tokens in production.
+_DEV_SECRET_KEY = "dev_secret_key_change_in_production"
 
 
 class Settings(BaseSettings):
@@ -31,7 +36,7 @@ class Settings(BaseSettings):
     CORS_ORIGINS: str = "http://localhost:3000"
 
     # ---- Security ----
-    SECRET_KEY: str = "dev_secret_key_change_in_production"
+    SECRET_KEY: str = _DEV_SECRET_KEY
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24  # 1 day
 
     # ---- Database ----
@@ -103,6 +108,28 @@ class Settings(BaseSettings):
             for o in (self.CORS_ORIGINS or "").split(",")
             if o.strip()
         ]
+
+    # -------------------------------------------------------------------
+    # Validation
+    # -------------------------------------------------------------------
+
+    @model_validator(mode="after")
+    def _enforce_production_secret(self) -> "Settings":
+        """Refuse to boot in production with the built-in dev SECRET_KEY.
+
+        The default key is committed and public; signing JWTs with it in
+        production would let anyone forge access tokens. Set SECRET_KEY via
+        the platform environment (Render / Railway / Fly) instead.
+        """
+        if (
+            self.ENVIRONMENT.strip().lower() == "production"
+            and self.SECRET_KEY == _DEV_SECRET_KEY
+        ):
+            raise ValueError(
+                "SECRET_KEY must be set via the environment in production; "
+                "the default development key is not allowed."
+            )
+        return self
 
 
 def _to_async_url(url: str) -> str:

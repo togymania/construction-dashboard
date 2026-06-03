@@ -19,6 +19,7 @@ from app.models import budget  # noqa: F401
 from app.models import budget_category  # noqa: F401
 from app.models import expense  # noqa: F401
 from app.models import tender  # noqa: F401
+from app.models import match_suggestion  # noqa: F401
 
 # Alembic config
 config = context.config

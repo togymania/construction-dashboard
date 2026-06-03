@@ -35,6 +35,7 @@ from app.models.expense import Expense, ExpenseStatus
 from app.models.ledger_entry import LedgerEntry, LedgerEntryType
 from app.models.subcontractor import SubcontractorContract
 from app.schemas.budget_variance import BudgetItemVariance, BudgetVarianceReport
+from app.services.cost_code import normalize_cost_code
 
 
 def _severity(planned: Decimal, actual: Decimal) -> str:
@@ -107,11 +108,18 @@ async def build_variance_report(
         .group_by(LedgerEntry.budget_code)
     )
     ledger_rows = (await db.execute(ledger_agg_stmt)).all()
-    ledger_by_code: dict[str, tuple[Decimal, int]] = {
-        (row.budget_code or "").strip().lower(): (Decimal(row.total), int(row.cnt))
-        for row in ledger_rows
-        if row.budget_code
-    }
+    # Key ledger totals by the *canonical* budget code so that surface
+    # variants ("03", "3", "3.0") collapse onto one bucket. Because the SQL
+    # GROUP BY runs on the raw string, several raw codes can normalise to the
+    # same key -- we must SUM into the bucket, not overwrite it, or we'd drop
+    # everything but the last variant.
+    ledger_by_code: dict[str, tuple[Decimal, int]] = {}
+    for row in ledger_rows:
+        key = normalize_cost_code(row.budget_code)
+        if not key:
+            continue
+        prev_amt, prev_cnt = ledger_by_code.get(key, (Decimal("0"), 0))
+        ledger_by_code[key] = (prev_amt + Decimal(row.total), prev_cnt + int(row.cnt))
 
     # Build per-item variance rows
     items_out: list[BudgetItemVariance] = []
@@ -125,7 +133,7 @@ async def build_variance_report(
     # variance da bir şeyleri yansıtsın.
     slug_rows = (await db.execute(select(BudgetCategory.slug, BudgetCategory.id))).all()
     slug_to_cat: dict[str, int] = {
-        (s or "").strip().lower(): cid for s, cid in slug_rows if s
+        normalize_cost_code(s): cid for s, cid in slug_rows if s
     }
     cat_level_actual: dict[int, tuple[Decimal, int]] = {}
     for code, (amt, cnt) in ledger_by_code.items():
@@ -147,7 +155,7 @@ async def build_variance_report(
         l_total = Decimal("0")
         l_cnt = 0
         if item.cost_code:
-            key = item.cost_code.strip().lower()
+            key = normalize_cost_code(item.cost_code)
             l_total, l_cnt = ledger_by_code.get(key, (Decimal("0"), 0))
 
         # Category-level allocation share

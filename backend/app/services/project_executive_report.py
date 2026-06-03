@@ -29,8 +29,22 @@ from app.models.subcontractor import (
     SubcontractorContract,
     SubcontractorPayment,
 )
+from app.models.ledger_entry import LedgerEntry, LedgerEntryType
 from app.models.workforce import WorkforceSnapshot
+from app.services.accruals import (
+    ContractAccrualSignal,
+    accrual_warning,
+    assess_accruals,
+)
 from app.services.budget_variance import build_variance_report
+from app.services.data_reliability import (
+    apply_accrual_penalty,
+    reliability_band,
+    reliability_caveat,
+    reliability_from_ledger_counts,
+)
+from app.services.earned_value import compute_eva, eva_projection_sentence
+from app.services.schedule_curve import planned_s_curve_progress
 
 
 async def build_executive_report(
@@ -56,6 +70,38 @@ async def build_executive_report(
     else:
         narrative = _rule_report(facts)
 
+    # AI Governance + EVA + Accruals injection (Prompts 2 & 3).
+    sections = narrative.setdefault("sections", {})
+    is_tr = (lang or "EN").upper() == "TR"
+
+    # Data trust = ledger reliability minus the missing-accrual penalty: a
+    # project whose booked cost lags physical work is less trustworthy even
+    # if every ledger row is coded.
+    trust = apply_accrual_penalty(
+        facts["data_reliability"]["score"], facts["accruals"]["flagged_ratio"]
+    )
+    caveat = reliability_caveat(trust, lang)
+
+    # Prompt 2 #4 — the Financial Status section MUST state the EAC drift.
+    eac_sentence = (
+        facts["eva"]["projection_sentence_tr"]
+        if is_tr
+        else facts["eva"]["projection_sentence_en"]
+    )
+    fin = str(sections.get("financial_status") or "").strip()
+    if eac_sentence and eac_sentence not in fin:
+        sections["financial_status"] = f"{fin} {eac_sentence}".strip()
+
+    # Prompt 3 — warn when site work has outrun booked cost; then the
+    # reliability caveat. Both prepend to the executive summary.
+    summary = str(sections.get("executive_summary") or "").strip()
+    accr_warn = (
+        facts["accruals"]["warning_tr"] if is_tr else facts["accruals"]["warning_en"]
+    )
+    prefix = " ".join(p for p in (accr_warn, caveat) if p).strip()
+    if prefix:
+        sections["executive_summary"] = f"{prefix} {summary}".strip()
+
     return {
         "project_id": project.id,
         "project_name": project.name,
@@ -79,6 +125,37 @@ async def _collect_project_facts(
 
     # ---- Budget variance (heavyweight call — but fact-rich) ----
     variance = await build_variance_report(db, project.id)
+
+    # ---- Data reliability (shared with the AI Director so the two AI
+    # features gate on the SAME number and can't contradict each other) ----
+    uncategorized = int(
+        (
+            await db.execute(
+                select(func.count(LedgerEntry.id)).where(
+                    LedgerEntry.budget_code.is_(None)
+                )
+            )
+        ).scalar_one()
+        or 0
+    )
+    unassigned = int(
+        (
+            await db.execute(
+                select(func.count(LedgerEntry.id)).where(
+                    LedgerEntry.subcontractor_id.is_(None),
+                    LedgerEntry.entry_type == LedgerEntryType.EXPENSE,
+                )
+            )
+        ).scalar_one()
+        or 0
+    )
+    total_entries = int(
+        (await db.execute(select(func.count(LedgerEntry.id)))).scalar_one() or 0
+    )
+    rel_score = reliability_from_ledger_counts(
+        uncategorized, unassigned, total_entries
+    )
+    rel_band = reliability_band(rel_score).value
 
     # ---- Subcontractor + contract aggregates for this project ----
     contracts_stmt = (
@@ -187,6 +264,37 @@ async def _collect_project_facts(
         if it.severity == "over"
     ][:6]
 
+    # ---- Earned Value (Prompt 2) + Accruals/CVR (Prompt 3) ----
+    physical = float(project.progress_pct or 0)
+    total_contract_value = sum(
+        (c.contract_amount or Decimal("0")) for c in contracts
+    )
+    payment_rate = (
+        float(paid_total / total_contract_value * 100)
+        if total_contract_value > 0
+        else 0.0
+    )
+    bac_for_eva = (
+        variance.total_planned
+        if variance.total_planned and variance.total_planned > 0
+        else Decimal(project.budget_rub or 0)
+    )
+    planned_pct = planned_s_curve_progress(project.start_date, project.end_date)
+    eva = compute_eva(
+        bac=bac_for_eva,
+        physical_progress_pct=physical,
+        acwp=variance.total_actual,
+        planned_progress_pct=planned_pct,
+    )
+    # Project-level accrual proxy: physical progress vs booked cost rate.
+    accr_signal = ContractAccrualSignal(
+        contract_id=0,
+        physical_progress_pct=physical,
+        payment_rate_pct=payment_rate,
+        days_since_last_cost=(None if paid_total <= 0 else 0.0),
+    )
+    cvr = assess_accruals([accr_signal])
+
     return {
         "project": {
             "id": project.id,
@@ -231,6 +339,35 @@ async def _collect_project_facts(
                 if prior_week_present
                 else None
             ),
+        },
+        "data_reliability": {
+            "score": round(rel_score, 1),
+            "band": rel_band,
+            "uncategorized": uncategorized,
+            "unassigned": unassigned,
+            "total_entries": total_entries,
+        },
+        "eva": {
+            "bac": float(eva.bac),
+            "bcws_planned_value": float(eva.bcws),
+            "bcwp_earned_value": float(eva.bcwp),
+            "acwp_actual_cost": float(eva.acwp),
+            "cpi": eva.cpi,
+            "spi": eva.spi,
+            "eac": float(eva.eac) if eva.eac is not None else None,
+            "vac": float(eva.vac) if eva.vac is not None else None,
+            "cost_band": eva.cost_band,
+            "schedule_band": eva.schedule_band,
+            "planned_s_curve_progress_pct": planned_pct,
+            "actual_earned_progress_pct": physical,
+            "projection_sentence_tr": eva_projection_sentence(eva, lang="TR"),
+            "projection_sentence_en": eva_projection_sentence(eva, lang="EN"),
+        },
+        "accruals": {
+            "progress_payment_gap_pct": round(physical - payment_rate, 2),
+            "flagged_ratio": cvr.flagged_ratio,
+            "warning_tr": accrual_warning(cvr, lang="TR"),
+            "warning_en": accrual_warning(cvr, lang="EN"),
         },
     }
 

@@ -15,9 +15,9 @@ from fastapi import APIRouter, Query
 from sqlalchemy import func, select
 
 from app.api.deps import CurrentUser, DBSession, UserLang
-from app.models.expense import Expense, ExpenseStatus
 from app.models.project import Project, ProjectHealth, ProjectStatus
 from app.schemas.dashboard import DailyBriefing, DashboardStats, KPIMetric
+from app.services.metrics import compute_project_financials
 
 router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
 
@@ -43,47 +43,36 @@ async def get_dashboard_stats(
     user: CurrentUser,
     db: DBSession,
 ) -> DashboardStats:
-    # Count active projects
-    active_count_stmt = select(func.count()).where(
-        Project.is_active == True,  # noqa: E712
-        Project.status == ProjectStatus.ACTIVE,
-    )
-    active_count = (await db.execute(active_count_stmt)).scalar_one()
-
-    # Total budget of active projects (RUB)
-    total_budget_stmt = select(func.coalesce(func.sum(Project.budget_rub), 0)).where(
-        Project.is_active == True,  # noqa: E712
-        Project.status == ProjectStatus.ACTIVE,
-    )
-    total_budget: Decimal = (await db.execute(total_budget_stmt)).scalar_one()
-
-    # Total spent across active projects (paid expenses only)
-    total_spent_stmt = (
-        select(func.coalesce(func.sum(Expense.amount), 0))
-        .join(Project, Expense.project_id == Project.id)
-        .where(
-            Project.is_active == True,  # noqa: E712
-            Project.status == ProjectStatus.ACTIVE,
-            Expense.status == ExpenseStatus.PAID,
+    # Load active projects once; aggregate in Python (portfolio is small).
+    active_projects = (
+        await db.execute(
+            select(Project).where(
+                Project.is_active == True,  # noqa: E712
+                Project.status == ProjectStatus.ACTIVE,
+            )
         )
+    ).scalars().all()
+    active_count = len(active_projects)
+    total_budget: Decimal = sum(
+        (Decimal(p.budget_rub or 0) for p in active_projects), Decimal("0")
     )
-    total_spent: Decimal = (await db.execute(total_spent_stmt)).scalar_one()
 
-    # On-track active projects
-    on_track_count_stmt = select(func.count()).where(
-        Project.is_active == True,  # noqa: E712
-        Project.status == ProjectStatus.ACTIVE,
-        Project.health == ProjectHealth.ON_TRACK,
-    )
-    on_track_count = (await db.execute(on_track_count_stmt)).scalar_one()
+    # Total spent comes from the canonical metrics service (SSOT) so this
+    # card agrees with the budget page, instead of summing the (empty in
+    # production) Expense table -- which is why it used to read 0%.
+    total_spent: Decimal = Decimal("0")
+    for p in active_projects:
+        fin = await compute_project_financials(db, p.id)
+        total_spent += fin.spent_total
 
-    # At-risk + delayed projects (proxy for open risks)
-    risk_count_stmt = select(func.count()).where(
-        Project.is_active == True,  # noqa: E712
-        Project.status == ProjectStatus.ACTIVE,
-        Project.health.in_([ProjectHealth.AT_RISK, ProjectHealth.DELAYED]),
+    on_track_count = sum(
+        1 for p in active_projects if p.health == ProjectHealth.ON_TRACK
     )
-    risk_count = (await db.execute(risk_count_stmt)).scalar_one()
+    risk_count = sum(
+        1
+        for p in active_projects
+        if p.health in (ProjectHealth.AT_RISK, ProjectHealth.DELAYED)
+    )
 
     on_track_pct = (on_track_count / active_count * 100) if active_count else 0
 

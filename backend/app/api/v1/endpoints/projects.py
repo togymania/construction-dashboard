@@ -12,9 +12,37 @@ from app.schemas.project import (
     ProjectResponse,
     ProjectUpdate,
 )
+from app.schemas.financials import ProjectFinancialsRead
 from app.schemas.project_ai_analysis import ProjectAIAnalysis
+from app.services.metrics import compute_project_financials
 
 router = APIRouter(prefix="/projects", tags=["Projects"])
+
+
+@router.get(
+    "/{project_id}/financials",
+    response_model=ProjectFinancialsRead,
+    summary="Canonical project financial metrics (Single Source of Truth)",
+)
+async def get_project_financials(
+    project_id: int,
+    user: CurrentUser,
+    db: DBSession,
+) -> ProjectFinancialsRead:
+    project = await db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")
+    fin = await compute_project_financials(db, project_id)
+    return ProjectFinancialsRead(
+        project_id=fin.project_id,
+        budget_total=fin.budget_total,
+        planned_total=fin.planned_total,
+        committed_total=fin.committed_total,
+        spent_total=fin.spent_total,
+        remaining=fin.remaining,
+        utilization_pct=fin.utilization_pct,
+        budget_consumed_pct=fin.budget_consumed_pct,
+    )
 
 
 @router.get(

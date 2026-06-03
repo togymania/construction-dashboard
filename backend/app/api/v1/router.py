@@ -10,6 +10,7 @@ from app.api.v1.endpoints import (
     financial_summary,
     ledger,
     projects,
+    reconciliation,
     subcontractors,
     tenders,
     workforce,
@@ -24,6 +25,7 @@ api_v1_router.include_router(budget_items.router)
 api_v1_router.include_router(expenses.router)
 api_v1_router.include_router(financial_summary.router)
 api_v1_router.include_router(ledger.router)
+api_v1_router.include_router(reconciliation.router)
 api_v1_router.include_router(subcontractors.router)
 api_v1_router.include_router(tenders.router)
 api_v1_router.include_router(workforce.router)

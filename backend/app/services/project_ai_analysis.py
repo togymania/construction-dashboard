@@ -40,6 +40,17 @@ from app.schemas.project_ai_analysis import (
     KPIStatus,
     ProjectAIAnalysis,
 )
+from app.services.accruals import ContractAccrualSignal, assess_accruals
+from app.services.critical_path import Activity, compute_cpm, critical_path_delayed_days
+from app.services.data_reliability import (
+    ReliabilityBand,
+    apply_accrual_penalty,
+    reliability_band,
+    reliability_caveat,
+    reliability_from_ledger_counts,
+)
+from app.services.earned_value import compute_eva
+from app.services.schedule_curve import planned_s_curve_progress
 
 
 # ============================================================================
@@ -71,6 +82,25 @@ async def build_ai_analysis(
 
     if verdict_payload is None:
         verdict_payload = _rule_verdict(facts, kpis_dict, lang=lang)
+
+    # AI Governance gate (shared with the Executive Report): the LLM path
+    # is NOT otherwise reliability-gated, so an LLM "ON_TRACK" on unlinked
+    # data would slip through and contradict the report. Clamp it here using
+    # the SAME score both AI features share.
+    dq = facts["data_quality"]
+    rel_score = reliability_from_ledger_counts(
+        dq["uncategorized_count"], dq["unassigned_count"], dq["total_entries"]
+    )
+    if (
+        reliability_band(rel_score) is ReliabilityBand.LOW
+        and verdict_payload.get("verdict") == "ON_TRACK"
+    ):
+        verdict_payload["verdict"] = "AT_RISK"
+        verdict_payload["data_confidence"] = "LOW"
+        if not verdict_payload.get("data_confidence_note"):
+            verdict_payload["data_confidence_note"] = (
+                reliability_caveat(rel_score, lang) or ""
+            )
 
     return ProjectAIAnalysis(
         project_id=project_id,
@@ -228,6 +258,49 @@ async def _collect_facts(db: AsyncSession, project: Project) -> dict[str, Any]:
             else:
                 momentum = "flat"
 
+    # ---- S-Curve (Prompt 1) + Earned Value (Prompt 2) + CPM + Accruals ----
+    planned_s_curve = planned_s_curve_progress(project.start_date, project.end_date)
+    eva = compute_eva(
+        bac=bac,
+        physical_progress_pct=progress_pct,
+        acwp=ac,
+        planned_progress_pct=planned_s_curve,
+    )
+    # Build a CPM network from contracts (no dependency model yet → the
+    # longest contract is the zero-float critical one). Critical-path delay
+    # only counts slips on those zero-float activities.
+    activities: list[Activity] = []
+    for contract, _sub in contract_rows:
+        if project.start_date and contract.end_date:
+            dur = max(1, (contract.end_date - project.start_date).days)
+        else:
+            dur = 1
+        od = 0
+        if (
+            contract.status == ContractStatus.ACTIVE
+            and contract.end_date
+            and contract.end_date < today
+        ):
+            od = (today - contract.end_date).days
+        activities.append(
+            Activity(id=str(contract.id), duration=float(dur), overdue_days=float(od))
+        )
+    cpm = compute_cpm(activities) if activities else None
+    critical_delay = critical_path_delayed_days(activities, cpm) if activities else 0.0
+
+    # Project-level accrual proxy: physical progress vs booked-cost rate.
+    payment_rate = float(ac / bac * 100) if bac > 0 else 0.0
+    accr_cvr = assess_accruals(
+        [
+            ContractAccrualSignal(
+                contract_id=0,
+                physical_progress_pct=progress_pct,
+                payment_rate_pct=payment_rate,
+                days_since_last_cost=(None if ac <= 0 else 0.0),
+            )
+        ]
+    )
+
     return {
         "project": {
             "id": project.id,
@@ -244,12 +317,28 @@ async def _collect_facts(db: AsyncSession, project: Project) -> dict[str, Any]:
             "total_delay_days": sum(o["days"] for o in overdue),
             "max_overdue_days": max((o["days"] for o in overdue), default=0),
             "critical_blocked": critical_blocked,
+            # Prompt 1: S-curve plan vs earned, and delay on the zero-float
+            # critical path (not just "any contract ending soon").
+            "planned_s_curve_progress_pct": planned_s_curve,
+            "actual_earned_progress_pct": progress_pct,
+            "critical_path_delayed_days": critical_delay,
         },
         "financial": {
             "bac": float(bac),
             "ac": float(ac),
             "budget_used_pct": float(ac / bac * 100) if bac > 0 else 0.0,
             "progress_pct": progress_pct,
+            # Prompt 2: Earned Value indices.
+            "cpi": eva.cpi,
+            "spi": eva.spi,
+            "eac": float(eva.eac) if eva.eac is not None else None,
+            "vac": float(eva.vac) if eva.vac is not None else None,
+            "cost_band": eva.cost_band,
+            "schedule_band": eva.schedule_band,
+        },
+        "accruals": {
+            "progress_payment_gap_pct": round(progress_pct - payment_rate, 2),
+            "flagged_ratio": accr_cvr.flagged_ratio,
         },
         "data_quality": {
             "uncategorized_count": uncategorized,
@@ -302,7 +391,10 @@ def _compute_kpis(facts: dict[str, Any]) -> dict[str, dict[str, Any]]:
         end_d = date.fromisoformat(end_iso)
         span = max((end_d - start_d).days, 1)
         elapsed = max(0, min((today - start_d).days, span))
-        planned_progress = (elapsed / span) * 100.0
+        # Prompt 1: planned progress follows the S-curve, not a straight line.
+        planned_progress = sched.get("planned_s_curve_progress_pct")
+        if planned_progress is None:
+            planned_progress = (elapsed / span) * 100.0
         # delay in days = (planned - actual) * span / 100
         diff_pct = planned_progress - progress_pct
         schedule_delay_days = int(diff_pct / 100.0 * span)
@@ -361,28 +453,29 @@ def _compute_kpis(facts: dict[str, Any]) -> dict[str, dict[str, Any]]:
         eff_value = "—"
         eff_status = "unknown"
 
-    # ----- Step 5: cost consistency ----------------------------------------
-    bac = fin["bac"]
-    ac = fin["ac"]
-    if bac <= 0 or progress_pct <= 0:
+    # ----- Step 5: cost consistency — Earned Value CPI rule (Prompt 2) -----
+    # CPI < 0.90 => over budget (red); CPI > 1.0 => favourable (green);
+    # in between => on target (amber). Replaces the old spent-vs-progress
+    # heuristic.
+    cpi = fin.get("cpi")
+    if cpi is None:
         cost_state = "unknown"
         cost_status = "unknown"
+    elif cpi < 0.9:
+        cost_state = "overrun_risk"
+        cost_status = "critical"
+    elif cpi > 1.0:
+        cost_state = "favourable"
+        cost_status = "ok"
     else:
-        cost_ratio = (ac / bac) if bac > 0 else 0.0
-        progress_ratio = progress_pct / 100.0
-        diff = cost_ratio - progress_ratio
-        if diff > 0.20:
-            cost_state = "overrun_risk"
-            cost_status = "critical"
-        elif diff < -0.20:
-            cost_state = "underreported"
-            cost_status = "watch"
-        else:
-            cost_state = "consistent"
-            cost_status = "ok"
+        cost_state = "on_target"
+        cost_status = "watch"
 
-    # ----- Step 6: data reliability (already computed) ---------------------
-    reliability_pct = dq["reliability_pct"]
+    # ----- Step 6: data reliability + accrual penalty (Prompt 3) ----------
+    accr = facts.get("accruals", {})
+    reliability_pct = apply_accrual_penalty(
+        dq["reliability_pct"], accr.get("flagged_ratio", 0.0)
+    )
     if reliability_pct >= 80:
         rel_status = "ok"
     elif reliability_pct >= 60:
@@ -517,12 +610,26 @@ def _rule_verdict(
     proj_delay = meta["projected_delay_days"]
     confidence = meta["data_confidence"]
 
+    # Prompt 1 #4: behind the S-curve AND the slip is on the zero-float
+    # critical path → escalate.
+    sched_f = facts["schedule"]
+    earned = float(sched_f.get("actual_earned_progress_pct") or 0)
+    planned_sc = sched_f.get("planned_s_curve_progress_pct")
+    crit_delay = float(sched_f.get("critical_path_delayed_days") or 0)
+    behind_curve = planned_sc is not None and earned < float(planned_sc)
+
     # ---- Step 7: final verdict --------------------------------------------
     if blocked:
         verdict = "CRITICAL"
+    elif behind_curve and crit_delay > 14:
+        verdict = "CRITICAL"
     elif proj_delay > 14:
         verdict = "AT_RISK"
-    elif proj_delay > 3 or kpis["cost_consistency"]["status"] == "critical":
+    elif (
+        proj_delay > 3
+        or kpis["cost_consistency"]["status"] == "critical"
+        or (behind_curve and crit_delay > 0)
+    ):
         verdict = "AT_RISK"
     elif confidence == "LOW":
         # Cannot trust anything -> not on track
@@ -694,7 +801,14 @@ _SYSTEM_PROMPT_EN = (
     "Use single-sentence verdict. Identify a single root cause. "
     "If data is bad, say 'Financials cannot be trusted'. Never end "
     "without actions. Use only 'will / cannot / is' -- never 'may / "
-    "might / possibly'."
+    "might / possibly'. "
+    "Judge schedule against the planned S-curve (planned_s_curve_progress "
+    "vs actual_earned_progress), NOT a straight line; if actual is behind "
+    "the S-curve AND the slip is on the critical path "
+    "(critical_path_delayed_days > 0), the status is AT_RISK or CRITICAL. "
+    "Use Earned Value: CPI < 0.90 means over budget, CPI > 1.0 favourable; "
+    "cite EAC. If the accrual gap is high (site progress far exceeds booked "
+    "cost), warn that costs are unbooked and the profit/loss is misleading."
 )
 
 
@@ -713,7 +827,15 @@ _SYSTEM_PROMPT_TR = (
     "Karar tek cümlede verilir. Tek bir kök neden belirt. "
     "Veri kötüyse 'Finansal verilere güvenilemez' diye yaz. Aksiyonsuz "
     "asla bitirme. Sadece 'olacak / olamaz / -dır' kullan; "
-    "'olabilir / muhtemel' kullanma. Tüm çıktı Türkçe olacak."
+    "'olabilir / muhtemel' kullanma. "
+    "Takvimi düz çizgiye göre değil planlanan S-eğrisine göre değerlendir "
+    "(planned_s_curve_progress vs actual_earned_progress); fiili S-eğrisinin "
+    "gerisindeyse VE gecikme kritik yoldaysa (critical_path_delayed_days > 0) "
+    "durum AT_RISK veya CRITICAL'dır. Kazanılmış Değer kullan: CPI < 0,90 "
+    "bütçe aşımı, CPI > 1,0 olumludur; EAC'yi belirt. Tahakkuk farkı yüksekse "
+    "(saha ilerlemesi işlenen maliyeti çok aşıyorsa) maliyetlerin "
+    "kaydedilmediğini ve kâr/zarar tablosunun yanıltıcı olabileceğini söyle. "
+    "Tüm çıktı Türkçe olacak."
 )
 
 
@@ -735,6 +857,7 @@ def _llm_verdict(
             "project": facts["project"],
             "schedule": facts["schedule"],
             "financial": facts["financial"],
+            "accruals": facts.get("accruals", {}),
             "data_quality": facts["data_quality"],
             "workforce": facts["workforce"],
             "contractor_risk": facts["contractor_risk"],
