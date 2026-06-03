@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import delete, select
 
-from app.api.deps import CurrentUser, DBSession, require_roles
+from app.api.deps import CurrentUser, DBSession, UserLang, require_roles
 from app.models.budget import BudgetItem
 from app.models.ledger_entry import LedgerEntry
 from app.models.match_suggestion import (
@@ -27,10 +27,12 @@ from app.models.subcontractor import Subcontractor
 from app.models.user import User, UserRole
 from app.schemas.match_suggestion import (
     ActionResult,
+    AIBudgetSuggestRequest,
     BulkActionRequest,
     GenerateResponse,
     MatchSuggestionRead,
 )
+from app.services.ai_budget_suggester import generate_ai_budget_suggestions
 from app.services.matching import Decision
 from app.services.reconciliation import build_reconciliation_plan
 
@@ -106,6 +108,28 @@ async def generate_suggestions(
         budget_review=st.budget_review,
         sub_review=st.sub_review,
     )
+
+
+@router.post(
+    "/projects/{project_id}/ledger/ai-suggest-budget-codes",
+    response_model=list[MatchSuggestionRead],
+    summary="AI-suggest budget codes for selected ledger rows (-> review queue)",
+)
+async def ai_suggest_budget_codes(
+    project_id: int,
+    payload: AIBudgetSuggestRequest,
+    db: DBSession,
+    lang: UserLang,
+    _user: User = Depends(require_roles(*_EDITORS)),
+) -> list[MatchSuggestionRead]:
+    # Web research + an LLM call per row is slow; cap the batch size.
+    ids = payload.entry_ids[:25]
+    if not ids:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "entry_ids required")
+    created = await generate_ai_budget_suggestions(
+        db, project_id, ids, lang=lang, use_web=payload.use_web
+    )
+    return [MatchSuggestionRead.model_validate(m) for m in created]
 
 
 @router.get(

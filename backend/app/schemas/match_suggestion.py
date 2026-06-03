@@ -20,6 +20,7 @@ class MatchSuggestionRead(BaseModel):
     candidate_label: str | None
     score: Decimal
     reason: str
+    rationale: str | None = None
     status: SuggestionStatus
     resolved_at: datetime | None
     resolved_by: int | None
@@ -41,6 +42,13 @@ class BulkActionRequest(BaseModel):
     """Approve or reject many suggestions at once."""
 
     suggestion_ids: list[int]
+
+
+class AIBudgetSuggestRequest(BaseModel):
+    """Request AI budget-code suggestions for selected ledger rows."""
+
+    entry_ids: list[int]
+    use_web: bool = True  # research the company online via Claude web_search
 
 
 class ActionResult(BaseModel):

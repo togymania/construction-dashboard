@@ -1,4 +1,5 @@
 import { getToken } from "@/lib/auth";
+import type { MatchSuggestion } from "@/types/reconciliation";
 import type {
   WorkforceCategory,
   WorkforceImportResponse,
@@ -813,6 +814,41 @@ export const api = {
     bySubcontractor: (subcontractorId: number) =>
       request<SubcontractorPaymentEntry[]>(
         "/ledger/by-subcontractor/" + subcontractorId
+      ),
+  },
+
+  reconciliation: {
+    aiSuggestBudgetCodes: (
+      projectId: number,
+      entryIds: number[],
+      useWeb = true
+    ) =>
+      request<MatchSuggestion[]>(
+        `/projects/${projectId}/ledger/ai-suggest-budget-codes`,
+        {
+          method: "POST",
+          body: JSON.stringify({ entry_ids: entryIds, use_web: useWeb }),
+        }
+      ),
+
+    listSuggestions: (status: string = "pending", field?: string) => {
+      const qs = new URLSearchParams({ status });
+      if (field) qs.set("field", field);
+      return request<MatchSuggestion[]>(
+        "/reconciliation/suggestions?" + qs.toString()
+      );
+    },
+
+    approve: (id: number) =>
+      request<MatchSuggestion>(
+        `/reconciliation/suggestions/${id}/approve`,
+        { method: "POST" }
+      ),
+
+    reject: (id: number) =>
+      request<MatchSuggestion>(
+        `/reconciliation/suggestions/${id}/reject`,
+        { method: "POST" }
       ),
   },
 };

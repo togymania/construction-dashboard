@@ -18,6 +18,7 @@ import {
   X,
   CheckSquare,
   Square,
+  Sparkles,
 } from "lucide-react";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -61,6 +62,8 @@ import { useProject } from "@/components/providers/project-provider";
 import { formatRub, formatRubCompact } from "@/lib/formatters";
 import { LedgerImportWizard } from "@/components/expenses/import-wizard";
 import { FinancialSummaryCards } from "@/components/expenses/financial-summary-cards";
+import { AiBudgetSuggestModal } from "@/components/expenses/ai-budget-suggest-modal";
+import type { MatchSuggestion } from "@/types/reconciliation";
 import type {
   LedgerEntry,
   LedgerStats,
@@ -138,6 +141,11 @@ export default function ExpensesPage() {
 
   // Bulk-select state — entries selected for batch assignment.
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+
+  // AI budget-code suggestion modal state.
+  const [aiSuggestions, setAiSuggestions] = useState<MatchSuggestion[]>([]);
+  const [aiModalOpen, setAiModalOpen] = useState(false);
+  const [aiLoading, setAiLoading] = useState(false);
 
   // Reference data for inline + bulk assign popovers.
   const [budgetCategories, setBudgetCategories] = useState<BudgetCategory[]>([]);
@@ -367,6 +375,27 @@ export default function ExpensesPage() {
       toast.error(e instanceof ApiError ? e.message : "Bulk update failed");
     } finally {
       setIsApplyingBulk(false);
+    }
+  }
+
+  async function runAiSuggest() {
+    if (selectedIds.size === 0) return;
+    setAiSuggestions([]);
+    setAiLoading(true);
+    setAiModalOpen(true);
+    try {
+      const res = await api.reconciliation.aiSuggestBudgetCodes(
+        projectId,
+        Array.from(selectedIds),
+        true,
+      );
+      setAiSuggestions(res);
+      if (res.length === 0) toast.info("Öneri üretilemedi");
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "AI önerisi başarısız");
+      setAiModalOpen(false);
+    } finally {
+      setAiLoading(false);
     }
   }
 
@@ -606,6 +635,18 @@ export default function ExpensesPage() {
             {selectedIds.size} selected
           </span>
           <div className="flex-1" />
+
+          {/* AI: suggest budget codes for the selected rows */}
+          <Button
+            variant="secondary"
+            size="sm"
+            className="bg-white/20 hover:bg-white/30 text-primary-foreground border-white/20"
+            onClick={runAiSuggest}
+            disabled={aiLoading}
+          >
+            <Sparkles className="h-3.5 w-3.5 mr-1.5" />
+            AI ile bütçe kodu öner
+          </Button>
 
           {/* Bulk: assign budget code */}
           <Popover open={bulkBudgetOpen} onOpenChange={setBulkBudgetOpen}>
@@ -1036,6 +1077,17 @@ export default function ExpensesPage() {
           onComplete={handleImportComplete}
         />
       )}
+
+      <AiBudgetSuggestModal
+        open={aiModalOpen}
+        onOpenChange={setAiModalOpen}
+        suggestions={aiSuggestions}
+        loading={aiLoading}
+        onResolved={() => {
+          clearSelection();
+          loadData();
+        }}
+      />
     </div>
   );
 }

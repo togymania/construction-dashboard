@@ -20,6 +20,7 @@ from sqlalchemy import (
     Integer,
     Numeric,
     String,
+    Text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -74,6 +75,9 @@ class MatchSuggestion(Base):
 
     score: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=False)
     reason: Mapped[str] = mapped_column(String(30), nullable=False)
+    # Free-text explanation (used by AI budget suggestions to show why the
+    # code was proposed, incl. any web-research finding).
+    rationale: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     status: Mapped[SuggestionStatus] = mapped_column(
         Enum(SuggestionStatus, name="suggestion_status", values_callable=_enum_values),
