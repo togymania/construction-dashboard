@@ -121,34 +121,17 @@ async def build_variance_report(
         prev_amt, prev_cnt = ledger_by_code.get(key, (Decimal("0"), 0))
         ledger_by_code[key] = (prev_amt + Decimal(row.total), prev_cnt + int(row.cnt))
 
-    # Build per-item variance rows
+    # Build per-item variance rows.
+    #
+    # ÖNEMLİ: "Gerçekleşen" SADECE eşleşmeden gelir — (a) bu kaleme bağlı
+    # PAID Expense satırları + (b) budget_code'u bu kalemin cost_code'una
+    # normalize-eşit olan ledger satırları. Oransal/ağırlıklı dağıtım YOK:
+    # hiçbir harcama koda bağlanmadıysa kalemin gerçekleşeni 0 görünür ve
+    # kullanıcı Harcamalar'dan kod eşledikçe burası kendiliğinden güncellenir.
     items_out: list[BudgetItemVariance] = []
     total_planned = Decimal("0")
     total_committed = Decimal("0")
     total_actual = Decimal("0")
-
-    # Category-level ledger fallback: kullanıcı item-level cost_code yerine
-    # category slug ("bina", "yollar") atayabiliyor. Bu rakamı kategori
-    # içindeki kalemlere planlanan tutara orantılı dağıtırız ki per-item
-    # variance da bir şeyleri yansıtsın.
-    slug_rows = (await db.execute(select(BudgetCategory.slug, BudgetCategory.id))).all()
-    slug_to_cat: dict[str, int] = {
-        normalize_cost_code(s): cid for s, cid in slug_rows if s
-    }
-    cat_level_actual: dict[int, tuple[Decimal, int]] = {}
-    for code, (amt, cnt) in ledger_by_code.items():
-        cat_id = slug_to_cat.get(code)
-        if cat_id is None:
-            continue
-        prev_amt, prev_cnt = cat_level_actual.get(cat_id, (Decimal("0"), 0))
-        cat_level_actual[cat_id] = (prev_amt + amt, prev_cnt + cnt)
-
-    # Planlanan toplam per category (orantılı dağıtım için)
-    planned_per_cat: dict[int, Decimal] = {}
-    for item, cat in rows:
-        planned_per_cat[cat.id] = planned_per_cat.get(cat.id, Decimal("0")) + (
-            item.planned_amount or Decimal("0")
-        )
 
     for item, cat in rows:
         e_total, e_cnt = expense_by_item.get(item.id, (Decimal("0"), 0))
@@ -157,15 +140,6 @@ async def build_variance_report(
         if item.cost_code:
             key = normalize_cost_code(item.cost_code)
             l_total, l_cnt = ledger_by_code.get(key, (Decimal("0"), 0))
-
-        # Category-level allocation share
-        cat_total, cat_cnt = cat_level_actual.get(cat.id, (Decimal("0"), 0))
-        if cat_total > 0:
-            cat_planned = planned_per_cat.get(cat.id, Decimal("0"))
-            if cat_planned > 0:
-                share = (item.planned_amount or Decimal("0")) / cat_planned
-                l_total += cat_total * share
-                l_cnt += cat_cnt  # count'u kategori toplamında bırak
 
         actual = e_total + l_total
         match_count = e_cnt + l_cnt
@@ -197,13 +171,9 @@ async def build_variance_report(
         total_committed += item.committed_amount or Decimal("0")
         total_actual += actual
 
-    # OZET-türetilmiş toplam gider — kullanıcı Harcamalar üst KPI'ındaki
-    # Toplam Gider rakamı (örn. 8.61B ₽) ile Planned vs Actual sayfasındaki
-    # ACTUAL (PAID) tutarının aynı olmasını istiyor. Ledger satırlarının
-    # kaç tanesinin bütçe kodu var diye bakmadan, Finansal Özet (OZET)
-    # rakamından doğrudan toplamı alıp item'lara planlanan tutara oranlı
-    # paylaştırıyoruz. Bu sayede her item'ın utilization yüzdesi aynı
-    # global ortalama olur — temsili ama tutarlı.
+    # OZET (Finansal Özet) kaynaklı gerçek nakit çıkışı. Item'lara ASLA
+    # dağıtılmaz; yalnızca SSOT/dashboard'ın (EAC, kullanım %) gerçek
+    # harcamayı raporlamaya devam edebilmesi için raporla birlikte döner.
     from app.models.financial_summary import FinancialSummary
 
     fs_rows = (
@@ -218,43 +188,12 @@ async def build_variance_report(
         "banka_giderleri",
         "diger_gelir_giderler",
     )
-    ozet_total_expense = Decimal("0")
+    cash_out_total = Decimal("0")
     for r in fs_rows:
         for fld in PARENT_EXPENSE_FIELDS:
             val = getattr(r, fld, None) or Decimal("0")
             if val < 0:
-                ozet_total_expense += -val
-
-    if ozet_total_expense > 0 and total_planned > 0:
-        redistributed: list[BudgetItemVariance] = []
-        for it in items_out:
-            share = it.planned_amount / total_planned
-            new_actual = ozet_total_expense * share
-            new_variance = new_actual - it.planned_amount
-            new_variance_pct = (
-                float(new_variance / it.planned_amount * 100)
-                if it.planned_amount > 0
-                else None
-            )
-            redistributed.append(
-                BudgetItemVariance(
-                    id=it.id,
-                    cost_code=it.cost_code,
-                    description=it.description,
-                    category_id=it.category_id,
-                    category_name=it.category_name,
-                    category_slug=it.category_slug,
-                    planned_amount=it.planned_amount,
-                    committed_amount=it.committed_amount,
-                    actual_amount=new_actual,
-                    variance=new_variance,
-                    variance_pct=new_variance_pct,
-                    matched_expense_count=it.matched_expense_count,
-                    severity=_severity(it.planned_amount, new_actual),
-                )
-            )
-        items_out = redistributed
-        total_actual = ozet_total_expense
+                cash_out_total += -val
 
     overall_variance = total_actual - total_planned
     overall_variance_pct = (
@@ -269,6 +208,7 @@ async def build_variance_report(
         total_planned=total_planned,
         total_committed=total_committed,
         total_actual=total_actual,
+        cash_out_total=cash_out_total,
         overall_variance=overall_variance,
         overall_variance_pct=overall_variance_pct,
         items=items_out,

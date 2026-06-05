@@ -39,7 +39,12 @@ class BudgetVarianceReport(BaseModel):
     generated_at: datetime
     total_planned: Decimal
     total_committed: Decimal
+    # Sum of per-item matched actuals only (budget_code <-> cost_code).
     total_actual: Decimal
+    # Real cash-out derived from the Financial Summary (OZET). Items are
+    # NOT prorated against this; it exists so the SSOT/dashboard can keep
+    # reporting true spend while the budget page stays match-only honest.
+    cash_out_total: Decimal = Decimal("0")
     overall_variance: Decimal
     overall_variance_pct: float | None
     items: list[BudgetItemVariance]

@@ -85,8 +85,11 @@ async def compute_project_financials(
 ) -> ProjectFinancials:
     """Gather the canonical financials for a project from the DB.
 
-    Reuses :func:`build_variance_report` for ``spent_total`` so the budget
-    page and this SSOT already agree by construction.
+    ``spent_total`` = real cash-out from the Financial Summary (OZET,
+    ``cash_out_total``). The budget page's per-item actuals are match-only
+    (ledger budget_code <-> item cost_code) and intentionally smaller until
+    the user assigns codes; the dashboard/EAC must still reflect true spend.
+    Falls back to the matched total when no OZET rows exist (e.g. tests).
     """
     project = (
         await db.execute(select(Project).where(Project.id == project_id))
@@ -97,10 +100,11 @@ async def compute_project_financials(
         else Decimal("0")
     )
     report = await build_variance_report(db, project_id)
+    spent = report.cash_out_total if report.cash_out_total > 0 else report.total_actual
     return build_financials(
         project_id=project_id,
         budget_total=budget_total,
         planned_total=report.total_planned,
         committed_total=report.total_committed,
-        spent_total=report.total_actual,
+        spent_total=spent,
     )

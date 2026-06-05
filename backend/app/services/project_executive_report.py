@@ -280,10 +280,17 @@ async def _collect_project_facts(
         else Decimal(project.budget_rub or 0)
     )
     planned_pct = planned_s_curve_progress(project.start_date, project.end_date)
+    # ACWP = gerçek nakit çıkışı (OZET). Variance item'ları artık yalnızca
+    # kod-eşleşmeli tutarları taşıdığı için EVA'yı cash_out_total besler.
+    real_spend = (
+        variance.cash_out_total
+        if variance.cash_out_total and variance.cash_out_total > 0
+        else variance.total_actual
+    )
     eva = compute_eva(
         bac=bac_for_eva,
         physical_progress_pct=physical,
-        acwp=variance.total_actual,
+        acwp=real_spend,
         planned_progress_pct=planned_pct,
     )
     # Project-level accrual proxy: physical progress vs booked cost rate.
@@ -311,7 +318,10 @@ async def _collect_project_facts(
         "budget": {
             "total_planned": float(variance.total_planned),
             "total_committed": float(variance.total_committed),
-            "total_actual": float(variance.total_actual),
+            # total_actual = gerçek nakit çıkışı (OZET); matched_actual =
+            # bütçe koduna fiilen eşlenmiş harcamaların toplamı.
+            "total_actual": float(real_spend),
+            "matched_actual": float(variance.total_actual),
             "overall_variance": float(variance.overall_variance),
             "overall_variance_pct": variance.overall_variance_pct,
             "over_budget_items": over_items,
