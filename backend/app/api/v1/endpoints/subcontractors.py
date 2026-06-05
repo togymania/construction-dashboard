@@ -10,6 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import CurrentUser, DBSession, UserLang, require_roles
+from app.core.config import settings
 from app.models.project import Project
 from app.models.subcontractor import (
     ContractDocument,
@@ -23,6 +24,8 @@ from app.models.subcontractor import (
 from app.models.user import User, UserRole
 from app.schemas.subcontractor import (
     AIInsight,
+    AiChatRequest,
+    AiChatResponse,
     AggregateCashFlowForecast,
     AggregateForecastContributor,
     CashFlowForecast,
@@ -1897,34 +1900,40 @@ async def upload_document(
     file_path = os.path.join(upload_dir, safe_name)
 
     content = await file.read()
+
+    ctype = (file.content_type or "").lower()
+    fname = (file.filename or "").lower()
+    is_pdf = "pdf" in ctype or fname.endswith(".pdf")
+    is_text = (
+        ctype.startswith("text/")
+        or "markdown" in ctype
+        or fname.endswith((".md", ".markdown", ".txt"))
+    )
+
+    # Size limits BEFORE writing anything to disk
+    max_bytes = settings.MAX_PDF_SIZE_MB * 1024 * 1024
+    if len(content) > max_bytes:
+        raise HTTPException(
+            status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            f"File too large (>{settings.MAX_PDF_SIZE_MB}MB)",
+        )
+
     with open(file_path, "wb") as f:
         f.write(content)
 
-    # Try to extract data from the file
+    # Extract plain text (PDF text layer, or decoded md/txt) — the AI
+    # assistant uses this to answer questions about the document.
+    text = ""
     extracted = None
     try:
         from app.services.contract_parser import (
-            parse_contract_text,
             extract_text_from_pdf,
             parse_contract_with_llm,
         )
-        from app.core.config import settings
 
-        text = ""
-        ctype = (file.content_type or "").lower()
-        fname = (file.filename or "").lower()
-
-        # PDF branch (Day 11)
-        if "pdf" in ctype or fname.endswith(".pdf"):
-            # Soft size check (config-driven)
-            max_bytes = settings.MAX_PDF_SIZE_MB * 1024 * 1024
-            if len(content) > max_bytes:
-                raise HTTPException(
-                    status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                    f"PDF too large (>{settings.MAX_PDF_SIZE_MB}MB)",
-                )
+        if is_pdf:
             text = extract_text_from_pdf(content)
-        elif ctype.startswith("text/") or "text" in ctype:
+        elif is_text:
             text = content.decode("utf-8", errors="ignore")
 
         if text:
@@ -1941,15 +1950,34 @@ async def upload_document(
         # Never block upload on parse failure
         pass
 
+    # Sensible mime fallback for .md files (browsers often send none)
+    mime = file.content_type or ""
+    if not mime or mime == "application/octet-stream":
+        if fname.endswith((".md", ".markdown")):
+            mime = "text/markdown"
+        elif fname.endswith(".txt"):
+            mime = "text/plain"
+        elif fname.endswith(".pdf"):
+            mime = "application/pdf"
+        else:
+            mime = "application/octet-stream"
+
+    # Persist raw bytes in the DB for small/medium files so documents
+    # survive redeploys (Render's disk is ephemeral).
+    db_store_max = settings.DOC_DB_STORE_MAX_MB * 1024 * 1024
+    stored_bytes = content if len(content) <= db_store_max else None
+
     doc = ContractDocument(
         contract_id=contract_id,
         file_name=file.filename or safe_name,
         file_path=file_path,
         file_size=len(content),
-        mime_type=file.content_type or "application/octet-stream",
+        mime_type=mime,
         file_type=doc_type,
         version=version,
         extracted_data=extracted,
+        content=stored_bytes,
+        text_content=text[:1_500_000] if text else None,
         uploaded_by=user.id,
     )
     db.add(doc)
@@ -2015,24 +2043,32 @@ async def re_extract_document(
     doc = await db.get(ContractDocument, doc_id)
     if doc is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Document not found")
-    if not os.path.exists(doc.file_path):
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "File not found on disk")
 
     from app.services.contract_parser import (
         extract_text_from_pdf,
         parse_contract_with_llm,
     )
-    from app.core.config import settings
 
-    with open(doc.file_path, "rb") as f:
-        content = f.read()
+    # Prefer disk; fall back to DB-stored bytes (Render disk is ephemeral)
+    if os.path.exists(doc.file_path):
+        with open(doc.file_path, "rb") as f:
+            content = f.read()
+    elif doc.content is not None:
+        content = doc.content
+    else:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "File not found on disk")
 
     text = ""
     fname = doc.file_name.lower()
     ctype = (doc.mime_type or "").lower()
     if "pdf" in ctype or fname.endswith(".pdf"):
         text = extract_text_from_pdf(content)
-    elif ctype.startswith("text/") or "text" in ctype:
+    elif (
+        ctype.startswith("text/")
+        or "text" in ctype
+        or "markdown" in ctype
+        or fname.endswith((".md", ".markdown", ".txt"))
+    ):
         text = content.decode("utf-8", errors="ignore")
 
     if not text:
@@ -2048,6 +2084,7 @@ async def re_extract_document(
         timeout=settings.LLM_TIMEOUT_SECONDS,
     )
     doc.extracted_data = _json.dumps(llm_result, default=str)
+    doc.text_content = text[:1_500_000]
     await db.commit()
     await db.refresh(doc)
 
@@ -2112,21 +2149,32 @@ async def update_extracted_data(
 async def download_document(
     doc_id: int, user: CurrentUser, db: DBSession,
 ):
-    from fastapi.responses import FileResponse
+    from urllib.parse import quote
+
+    from fastapi.responses import FileResponse, Response
     import os
 
     doc = await db.get(ContractDocument, doc_id)
     if doc is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Document not found")
 
-    if not os.path.exists(doc.file_path):
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "File not found on disk")
+    if os.path.exists(doc.file_path):
+        return FileResponse(
+            path=doc.file_path,
+            filename=doc.file_name,
+            media_type=doc.mime_type,
+        )
 
-    return FileResponse(
-        path=doc.file_path,
-        filename=doc.file_name,
-        media_type=doc.mime_type,
-    )
+    # Disk file gone (e.g. after a redeploy) — serve DB-stored bytes
+    if doc.content is not None:
+        disposition = f"attachment; filename*=UTF-8''{quote(doc.file_name)}"
+        return Response(
+            content=doc.content,
+            media_type=doc.mime_type or "application/octet-stream",
+            headers={"Content-Disposition": disposition},
+        )
+
+    raise HTTPException(status.HTTP_404_NOT_FOUND, "File not found on disk")
 
 
 @router.delete(
@@ -2151,6 +2199,108 @@ async def delete_document(
 
     await db.delete(doc)
     await db.commit()
+
+
+@router.post(
+    "/subcontractors/{sub_id}/ai-chat",
+    response_model=AiChatResponse,
+    summary="AI Asistan: answer questions about this subcontractor's documents",
+)
+async def ai_chat(
+    sub_id: int,
+    payload: AiChatRequest,
+    db: DBSession,
+    lang: UserLang,
+    user: CurrentUser,
+) -> AiChatResponse:
+    """Answer a free-form question grounded in the subcontractor's uploaded
+    documents (PDF/MD/TXT text) plus contract metadata. Uses the Anthropic
+    API when configured; degrades to an honest rule-based reply otherwise."""
+    from app.services import document_qa as qa
+
+    question = (payload.question or "").strip()
+    if not question:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Question is empty")
+
+    await _ensure_subcontractor(db, sub_id)
+
+    contracts = (
+        (
+            await db.execute(
+                select(SubcontractorContract).where(
+                    SubcontractorContract.subcontractor_id == sub_id
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+    contract_lines: list[str] = []
+    snippets: list[qa.DocSnippet] = []
+    if contracts:
+        ids = [c.id for c in contracts]
+        labels = {
+            c.id: (c.contract_number or f"#{c.id}") for c in contracts
+        }
+        for c in contracts:
+            contract_lines.append(
+                f"- {labels[c.id]}: {c.description[:90]} | tutar/amount: {c.contract_amount} RUB"
+                f" | {c.start_date} - {c.end_date} | durum/status: {c.status.value}"
+            )
+        docs = (
+            (
+                await db.execute(
+                    select(ContractDocument)
+                    .where(ContractDocument.contract_id.in_(ids))
+                    .order_by(ContractDocument.created_at.desc())
+                )
+            )
+            .scalars()
+            .all()
+        )
+        for d in docs:
+            text = d.text_content or ""
+            if not text and d.extracted_data:
+                # Better than nothing: feed the extracted-fields JSON
+                text = f"(yalnizca cikartilan alanlar / extracted fields)\n{d.extracted_data}"
+            snippets.append(
+                qa.DocSnippet(
+                    name=d.file_name,
+                    text=text,
+                    doc_type=d.file_type.value,
+                    contract_label=labels.get(d.contract_id, ""),
+                )
+            )
+
+    readable = [s for s in snippets if (s.text or "").strip()]
+    if not readable:
+        return AiChatResponse(
+            answer=qa.no_documents_answer(lang, has_contracts=bool(contracts)),
+            source="fallback",
+            used_documents=[],
+        )
+
+    context, used = qa.build_context(readable, contract_lines)
+    history = [m.model_dump() for m in payload.history]
+
+    answer = qa.answer_with_ai(
+        question,
+        context,
+        history,
+        lang=lang,
+        api_key=settings.ANTHROPIC_API_KEY or None,
+        model=settings.ANTHROPIC_MODEL,
+        timeout=settings.LLM_TIMEOUT_SECONDS,
+    )
+    if answer:
+        return AiChatResponse(answer=answer, source="ai", used_documents=used)
+
+    return AiChatResponse(
+        answer=qa.fallback_answer(question, readable, contract_lines, lang),
+        source="fallback",
+        used_documents=used,
+    )
 
 
 # ============================================================================

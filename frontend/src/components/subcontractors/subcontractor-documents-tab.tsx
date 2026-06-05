@@ -93,9 +93,17 @@ export function SubcontractorDocumentsTab({ subId, contracts, canEdit }: Props) 
       e.target.value = "";
       return;
     }
-    if (!file.name.toLowerCase().endsWith(".pdf") && file.type !== "application/pdf") {
+    const lower = file.name.toLowerCase();
+    const isSupported =
+      lower.endsWith(".pdf") ||
+      lower.endsWith(".md") ||
+      lower.endsWith(".markdown") ||
+      lower.endsWith(".txt") ||
+      file.type === "application/pdf" ||
+      file.type.startsWith("text/");
+    if (!isSupported) {
       const ok = confirm(
-        "This file is not a PDF. AI extraction only runs on PDF or text files. Upload anyway?"
+        "Bu dosya PDF/MD/TXT değil. AI içerik analizi yalnızca PDF ve metin dosyalarında çalışır. Yine de yüklensin mi?"
       );
       if (!ok) { e.target.value = ""; return; }
     }
@@ -134,8 +142,9 @@ export function SubcontractorDocumentsTab({ subId, contracts, canEdit }: Props) 
         <div>
           <h2 className="text-lg font-semibold">Documents</h2>
           <p className="text-xs text-muted-foreground">
-            Contract PDFs, invoices, and supporting documents. AI automatically extracts
-            key fields after upload (mock — awaiting API key).
+            Sözleşme PDF'leri, faturalar ve destekleyici dokümanlar (PDF, MD, TXT).
+            Yüklemeden sonra AI temel alanları çıkarır; AI Asistan sekmesinden
+            içerik hakkında soru sorabilirsin.
           </p>
         </div>
         {canEdit && activeContracts.length > 0 && (
@@ -162,11 +171,11 @@ export function SubcontractorDocumentsTab({ subId, contracts, canEdit }: Props) 
             <Button asChild disabled={uploading}>
               <label className="cursor-pointer">
                 <Upload className="h-4 w-4 mr-2" />
-                {uploading ? "Uploading..." : "Upload PDF"}
+                {uploading ? "Yükleniyor..." : "Dosya Yükle (PDF/MD)"}
                 <input
                   type="file"
                   className="hidden"
-                  accept=".pdf,application/pdf,text/plain"
+                  accept=".pdf,.md,.markdown,.txt,application/pdf,text/plain,text/markdown"
                   onChange={handleUpload}
                   disabled={uploading}
                 />
@@ -200,7 +209,7 @@ export function SubcontractorDocumentsTab({ subId, contracts, canEdit }: Props) 
             ) : docs.length === 0 ? (
               <div className="text-center py-12 text-muted-foreground">
                 <FileText className="h-10 w-10 mx-auto mb-3 opacity-30" />
-                <p>No documents yet. Use the Upload PDF button above to get started.</p>
+                <p>Henüz doküman yok. Yukarıdaki &quot;Dosya Yükle&quot; butonuyla PDF veya MD ekleyebilirsin.</p>
               </div>
             ) : (
               <Table>

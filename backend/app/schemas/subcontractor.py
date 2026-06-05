@@ -469,6 +469,26 @@ class ContractDocumentResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class AiChatMessage(BaseModel):
+    """One prior message in the AI Asistan conversation."""
+
+    role: str  # "user" | "assistant"
+    content: str
+
+
+class AiChatRequest(BaseModel):
+    """Question about a subcontractor's uploaded documents."""
+
+    question: str
+    history: list[AiChatMessage] = []
+
+
+class AiChatResponse(BaseModel):
+    answer: str
+    source: str  # "ai" | "fallback"
+    used_documents: list[str] = []
+
+
 class PenaltyClause(BaseModel):
     """A single penalty clause extracted from a contract."""
 

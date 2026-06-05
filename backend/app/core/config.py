@@ -62,6 +62,10 @@ class Settings(BaseSettings):
     MAX_IMPORT_FILE_SIZE_MB: int = 5
     MAX_LEDGER_IMPORT_MB: int = 25  # HIPODROM workbook is ~11MB
     MAX_PDF_SIZE_MB: int = 100
+    # Documents up to this size also get their raw bytes stored in the DB so
+    # they survive redeploys (Render disk is ephemeral). Larger files remain
+    # disk-only and may disappear after a redeploy.
+    DOC_DB_STORE_MAX_MB: int = 20
 
     # ---- LLM ----
     # Leave ANTHROPIC_API_KEY empty to use rule-based fallback. When set,

@@ -39,6 +39,7 @@ import type {
   MonthlyCashFlowPoint, SubcontractorInsights, ContractAlert,
 } from "@/types/subcontractor";
 import { SubcontractorInsightsCard } from "@/components/subcontractors/insights-card";
+import { SubcontractorAiChat } from "@/components/subcontractors/subcontractor-ai-chat";
 import { SubcontractorProfileCard } from "@/components/subcontractors/profile-card";
 import { SubcontractorDocumentsTab } from "@/components/subcontractors/subcontractor-documents-tab";
 import { LedgerPaymentsTab } from "@/components/subcontractors/ledger-payments-tab";
@@ -385,21 +386,12 @@ export default function SubcontractorDetailPage() {
 
         {/* AI Insights */}
         <TabsContent value="insights" className="space-y-4">
+          <SubcontractorAiChat subcontractorId={subId} />
           <SubcontractorInsightsCard
             subcontractorId={subId}
             insights={insights}
             onRefreshed={setInsights}
           />
-          {/* AI Chat placeholder */}
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex gap-2">
-                <input type="text" placeholder="Ask about this subcontractor..." className="flex-1 rounded-lg border px-3 py-2 text-sm bg-background" disabled />
-                <Button disabled size="sm">Ask AI</Button>
-              </div>
-              <p className="text-xs text-muted-foreground mt-1">AI Chat coming soon — Phase 2</p>
-            </CardContent>
-          </Card>
         </TabsContent>
 
         {/* Overview */}

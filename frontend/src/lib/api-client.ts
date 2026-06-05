@@ -664,6 +664,16 @@ export const api = {
           body: JSON.stringify(data),
         }),
     },
+    // ===== AI Asistan (document Q&A) =====
+    aiChat: (
+      subId: number,
+      question: string,
+      history: { role: "user" | "assistant"; content: string }[] = []
+    ) =>
+      request<{ answer: string; source: "ai" | "fallback"; used_documents: string[] }>(
+        "/subcontractors/" + subId + "/ai-chat",
+        { method: "POST", body: JSON.stringify({ question, history }) }
+      ),
     // ===== AI Insights (Phase 4) =====
     aiInsights: (subId: number, forceRefresh: boolean = false) =>
       request<SubcontractorInsights>(

@@ -12,6 +12,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    LargeBinary,
     Numeric,
     String,
     Text,
@@ -342,6 +343,12 @@ class ContractDocument(Base):
     extracted_data: Mapped[str | None] = mapped_column(
         Text, nullable=True  # JSON stored as text
     )
+    # Raw file bytes persisted in DB (Render disk is ephemeral). Only stored
+    # for files up to settings.DOC_DB_STORE_MAX_MB; larger files stay disk-only.
+    content: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
+    # Extracted plain text (PDF text layer or decoded md/txt). Used by the
+    # AI assistant to answer questions about the document.
+    text_content: Mapped[str | None] = mapped_column(Text, nullable=True)
     uploaded_by: Mapped[int] = mapped_column(
         ForeignKey("users.id", ondelete="RESTRICT"),
         nullable=False,
