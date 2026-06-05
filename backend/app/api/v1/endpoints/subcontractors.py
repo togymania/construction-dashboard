@@ -1923,6 +1923,12 @@ async def upload_document(
 
     # Extract plain text (PDF text layer, or decoded md/txt) — the AI
     # assistant uses this to answer questions about the document.
+    #
+    # IMPORTANT: no LLM call here. A synchronous Claude call blocks the
+    # event loop for tens of seconds, which on a single-worker deploy made
+    # the whole API return 503 while an upload was processing. Upload does
+    # an instant regex-only parse; the real Claude extraction runs via the
+    # explicit /documents/{id}/re-extract endpoint (in a worker thread).
     text = ""
     extracted = None
     try:
@@ -1937,12 +1943,7 @@ async def upload_document(
             text = content.decode("utf-8", errors="ignore")
 
         if text:
-            llm_result = parse_contract_with_llm(
-                text,
-                api_key=settings.ANTHROPIC_API_KEY or None,
-                model=settings.ANTHROPIC_MODEL,
-                timeout=settings.LLM_TIMEOUT_SECONDS,
-            )
+            llm_result = parse_contract_with_llm(text, api_key=None)
             extracted = _json.dumps(llm_result, default=str)
     except HTTPException:
         raise
@@ -2077,11 +2078,19 @@ async def re_extract_document(
             "Could not extract any text from this document.",
         )
 
-    llm_result = parse_contract_with_llm(
-        text,
-        api_key=settings.ANTHROPIC_API_KEY or None,
-        model=settings.ANTHROPIC_MODEL,
-        timeout=settings.LLM_TIMEOUT_SECONDS,
+    import asyncio as _asyncio
+    import functools as _functools
+
+    # Run the (synchronous) Claude call in a worker thread so it does not
+    # block the event loop / make the whole API unavailable.
+    llm_result = await _asyncio.to_thread(
+        _functools.partial(
+            parse_contract_with_llm,
+            text,
+            api_key=settings.ANTHROPIC_API_KEY or None,
+            model=settings.ANTHROPIC_MODEL,
+            timeout=settings.LLM_TIMEOUT_SECONDS,
+        )
     )
     doc.extracted_data = _json.dumps(llm_result, default=str)
     doc.text_content = text[:1_500_000]
@@ -2284,14 +2293,21 @@ async def ai_chat(
     context, used = qa.build_context(readable, contract_lines)
     history = [m.model_dump() for m in payload.history]
 
-    answer = qa.answer_with_ai(
-        question,
-        context,
-        history,
-        lang=lang,
-        api_key=settings.ANTHROPIC_API_KEY or None,
-        model=settings.ANTHROPIC_MODEL,
-        timeout=settings.LLM_TIMEOUT_SECONDS,
+    import asyncio as _asyncio
+    import functools as _functools
+
+    # Sync Anthropic client in a worker thread — never block the event loop.
+    answer = await _asyncio.to_thread(
+        _functools.partial(
+            qa.answer_with_ai,
+            question,
+            context,
+            history,
+            lang=lang,
+            api_key=settings.ANTHROPIC_API_KEY or None,
+            model=settings.ANTHROPIC_MODEL,
+            timeout=settings.LLM_TIMEOUT_SECONDS,
+        )
     )
     if answer:
         return AiChatResponse(answer=answer, source="ai", used_documents=used)
