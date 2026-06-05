@@ -100,10 +100,6 @@ import { BudgetItemImportDialog } from "@/components/budget-items/budget-item-im
 import { BudgetVarianceTab } from "@/components/budget-items/variance-tab";
 import { ExpenseFormDialog } from "@/components/expenses/expense-form-dialog";
 import { ExpenseImportDialog } from "@/components/expenses/expense-import-dialog";
-import {
-  StatusBadge,
-  CONTRACT_STATUS_COLORS,
-} from "@/components/ui/status-badge";
 import type { SubcontractorContract } from "@/types/subcontractor";
 
 const CHART_COLORS = [
@@ -864,88 +860,117 @@ export default function ProjectBudgetPage() {
                   </Link>
                 </div>
               ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>{t("budget.colSubcontractor")}</TableHead>
-                      <TableHead>{t("budget.colContractNo")}</TableHead>
-                      <TableHead>{t("budget.colDescription")}</TableHead>
-                      <TableHead>{t("subs.colStatus")}</TableHead>
-                      <TableHead className="text-right">{t("budget.colAmount")}</TableHead>
-                      <TableHead className="text-right">{t("budget.colPaid")}</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {subContracts.map((c) => {
-                      const paidPct =
-                        parseFloat(c.contract_amount) > 0
-                          ? (parseFloat(c.paid_amount) /
-                              parseFloat(c.contract_amount)) *
-                            100
-                          : 0;
-                      return (
-                        <TableRow
-                          key={c.id}
-                          className="cursor-pointer hover:bg-muted/40"
-                        >
-                          <TableCell className="font-medium">
-                            {c.subcontractor ? (
-                              <Link
-                                href={`/projects/${projectId}/subcontractors/${c.subcontractor.id}`}
-                                className="hover:underline"
-                              >
-                                {c.subcontractor.name}
-                              </Link>
-                            ) : (
-                              "-"
-                            )}
-                            {c.subcontractor?.specialization && (
-                              <div className="text-xs text-muted-foreground">
-                                {c.subcontractor.specialization}
-                              </div>
-                            )}
-                          </TableCell>
-                          <TableCell className="font-mono text-xs">
-                            {c.subcontractor && (
-                              <Link
-                                href={`/projects/${projectId}/subcontractors/${c.subcontractor.id}/contracts/${c.id}`}
-                                className="hover:underline"
-                              >
-                                {c.contract_number ?? `#${c.id}`}
-                              </Link>
-                            )}
-                          </TableCell>
-                          <TableCell className="max-w-xs truncate" title={c.description}>
-                            {c.description}
-                          </TableCell>
-                          <TableCell>
-                            <div className="flex flex-col gap-1 items-start">
-                              <StatusBadge
-                                status={c.status}
-                                colorMap={CONTRACT_STATUS_COLORS}
-                              />
-                              {c.is_overdue && (
-                                <span className="inline-flex items-center gap-1 text-[10px] text-red-600 dark:text-red-400 font-medium">
-                                  <AlertCircle className="h-2.5 w-2.5" />
-                                  {t("budget.overdue")}
-                                </span>
-                              )}
-                            </div>
-                          </TableCell>
-                          <TableCell className="text-right font-medium">
-                            {formatRubCompact(c.contract_amount)}
-                          </TableCell>
-                          <TableCell className="text-right">
-                            <div>{formatRubCompact(c.paid_amount)}</div>
-                            <div className="text-xs text-muted-foreground">
-                              {paidPct.toFixed(0)}%
-                            </div>
-                          </TableCell>
+                (() => {
+                  // Taşeron bazında grupla: her firmaya tek satır, tutar ve
+                  // ödenen o firmanın TÜM sözleşmelerinin toplamı.
+                  interface SubGroup {
+                    subId: number | null;
+                    name: string;
+                    specialization: string | null;
+                    contractCount: number;
+                    activeCount: number;
+                    completedCount: number;
+                    overdueCount: number;
+                    totalAmount: number;
+                    totalPaid: number;
+                  }
+                  const groups = new Map<string, SubGroup>();
+                  for (const c of subContracts) {
+                    const key = c.subcontractor ? String(c.subcontractor.id) : "-";
+                    let g = groups.get(key);
+                    if (!g) {
+                      g = {
+                        subId: c.subcontractor?.id ?? null,
+                        name: c.subcontractor?.name ?? "-",
+                        specialization: c.subcontractor?.specialization ?? null,
+                        contractCount: 0,
+                        activeCount: 0,
+                        completedCount: 0,
+                        overdueCount: 0,
+                        totalAmount: 0,
+                        totalPaid: 0,
+                      };
+                      groups.set(key, g);
+                    }
+                    g.contractCount += 1;
+                    if (c.status === "active") g.activeCount += 1;
+                    if (c.status === "completed") g.completedCount += 1;
+                    if (c.is_overdue) g.overdueCount += 1;
+                    g.totalAmount += parseFloat(c.contract_amount) || 0;
+                    g.totalPaid += parseFloat(c.paid_amount) || 0;
+                  }
+                  const rows = Array.from(groups.values()).sort(
+                    (a, b) => b.totalAmount - a.totalAmount
+                  );
+                  return (
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>{t("budget.colSubcontractor")}</TableHead>
+                          <TableHead>{t("subs.contracts")}</TableHead>
+                          <TableHead>{t("subs.colStatus")}</TableHead>
+                          <TableHead className="text-right">{t("budget.colAmount")}</TableHead>
+                          <TableHead className="text-right">{t("budget.colPaid")}</TableHead>
                         </TableRow>
-                      );
-                    })}
-                  </TableBody>
-                </Table>
+                      </TableHeader>
+                      <TableBody>
+                        {rows.map((g) => {
+                          const paidPct =
+                            g.totalAmount > 0 ? (g.totalPaid / g.totalAmount) * 100 : 0;
+                          return (
+                            <TableRow key={g.subId ?? "none"} className="hover:bg-muted/40">
+                              <TableCell className="font-medium">
+                                {g.subId !== null ? (
+                                  <Link
+                                    href={`/projects/${projectId}/subcontractors/${g.subId}`}
+                                    className="hover:underline"
+                                  >
+                                    {g.name}
+                                  </Link>
+                                ) : (
+                                  g.name
+                                )}
+                                {g.specialization && (
+                                  <div className="text-xs text-muted-foreground">
+                                    {g.specialization}
+                                  </div>
+                                )}
+                              </TableCell>
+                              <TableCell>
+                                <span className="font-medium">{g.contractCount}</span>
+                                <div className="text-xs text-muted-foreground">
+                                  {g.activeCount} aktif
+                                  {g.completedCount > 0 && ` · ${g.completedCount} tamam`}
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                {g.overdueCount > 0 ? (
+                                  <span className="inline-flex items-center gap-1 text-xs text-red-600 dark:text-red-400 font-medium">
+                                    <AlertCircle className="h-3 w-3" />
+                                    {g.overdueCount} {t("budget.overdue").toLowerCase()}
+                                  </span>
+                                ) : (
+                                  <span className="text-xs text-emerald-600 dark:text-emerald-400">
+                                    OK
+                                  </span>
+                                )}
+                              </TableCell>
+                              <TableCell className="text-right font-medium">
+                                {formatRubCompact(String(g.totalAmount))}
+                              </TableCell>
+                              <TableCell className="text-right">
+                                <div>{formatRubCompact(String(g.totalPaid))}</div>
+                                <div className="text-xs text-muted-foreground">
+                                  {paidPct.toFixed(0)}%
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
+                      </TableBody>
+                    </Table>
+                  );
+                })()
               )}
             </CardContent>
           </Card>
