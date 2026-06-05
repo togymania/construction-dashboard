@@ -3,7 +3,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from enum import Enum
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 
 
 # ---------- Enums (mirrored from models for API contract isolation) ----------
@@ -467,6 +467,23 @@ class ContractDocumentResponse(BaseModel):
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+    @field_validator("extracted_data", mode="before")
+    @classmethod
+    def _parse_extracted_json(cls, v):
+        """DB stores extracted_data as a JSON *string*; accept and parse it.
+
+        Without this, model_validate(orm_doc) raises a ResponseValidationError
+        which surfaces to browsers as a CORS-less 500 ("Failed to fetch")."""
+        if isinstance(v, str):
+            import json
+
+            try:
+                parsed = json.loads(v)
+            except (ValueError, TypeError):
+                return None
+            return parsed if isinstance(parsed, dict) else None
+        return v
 
 
 class AiChatMessage(BaseModel):
