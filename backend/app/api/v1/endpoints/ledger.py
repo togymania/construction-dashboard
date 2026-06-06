@@ -336,7 +336,8 @@ async def import_preview(
                 LedgerEntry.dedup_hash == bindparam("h"),
                 LedgerEntry.invoice_number.is_(None),
             )
-            .values(invoice_number=bindparam("inv")),
+            .values(invoice_number=bindparam("inv"))
+            .execution_options(synchronize_session=None),
             backfill,
         )
         await db.commit()
