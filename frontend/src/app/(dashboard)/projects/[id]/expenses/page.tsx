@@ -69,7 +69,7 @@ import type {
   LedgerStats,
 } from "@/types/ledger";
 import type { FinancialSummary } from "@/types/financial-summary";
-import type { BudgetCategory } from "@/types/budget";
+import type { BudgetItem } from "@/types/budget";
 import type { SubcontractorListItem } from "@/types/subcontractor";
 
 type SortKey = "date" | "amount" | "company" | null;
@@ -148,7 +148,7 @@ export default function ExpensesPage() {
   const [aiLoading, setAiLoading] = useState(false);
 
   // Reference data for inline + bulk assign popovers.
-  const [budgetCategories, setBudgetCategories] = useState<BudgetCategory[]>([]);
+  const [budgetItems, setBudgetItems] = useState<BudgetItem[]>([]);
   const [subOptions, setSubOptions] = useState<SubcontractorListItem[]>([]);
 
   // Track which row is in inline-edit mode (popover open).
@@ -235,12 +235,8 @@ export default function ExpensesPage() {
     let cancelled = false;
     (async () => {
       try {
-        const [cats, subs] = await Promise.all([
-          api.budgetCategories.list(),
-          api.subcontractors.list(),
-        ]);
+        const subs = await api.subcontractors.list();
         if (cancelled) return;
-        setBudgetCategories(cats);
         setSubOptions(subs);
       } catch {
         // silently ignore — popovers will show empty state
@@ -250,6 +246,24 @@ export default function ExpensesPage() {
       cancelled = true;
     };
   }, []);
+
+  // Budget items (with cost_code) for the active project — assignment writes
+  // the item cost_code so it lands in the variance "Gerçekleşen" column.
+  useEffect(() => {
+    if (!projectId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const items = await api.budgetItems.listForProject(projectId);
+        if (!cancelled) setBudgetItems(items);
+      } catch {
+        /* ignore */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId]);
 
   // ---- Sort handling ----
   function handleSort(key: SortKey) {
@@ -336,6 +350,24 @@ export default function ExpensesPage() {
       toast.error(e instanceof ApiError ? e.message : "Failed to update");
     }
   }
+
+  // Budget items grouped by category, for the assignment dropdowns. The
+  // selected value written to a ledger entry is the item cost_code, so it
+  // matches the variance report and shows up under "Gerçekleşen".
+  const itemsByCategory = useMemo(() => {
+    const groups = new Map<string, { name: string; items: BudgetItem[] }>();
+    for (const it of budgetItems) {
+      if (!it.cost_code) continue;
+      const key = it.category?.slug || String(it.category_id);
+      let g = groups.get(key);
+      if (!g) {
+        g = { name: it.category?.name || key, items: [] };
+        groups.set(key, g);
+      }
+      g.items.push(it);
+    }
+    return Array.from(groups.values());
+  }, [budgetItems]);
 
   // ---- Bulk assignment ----
   async function bulkAssignBudget(code: string | null) {
@@ -662,31 +694,35 @@ export default function ExpensesPage() {
             </PopoverTrigger>
             <PopoverContent className="w-64 p-0" align="end">
               <Command>
-                <CommandInput placeholder="Search code..." />
+                <CommandInput placeholder="Kod / kalem ara..." />
                 <CommandList>
-                  <CommandEmpty>No matches.</CommandEmpty>
+                  <CommandEmpty>Eşleşme yok.</CommandEmpty>
                   <CommandGroup>
                     <CommandItem
                       value="__clear__"
                       onSelect={() => bulkAssignBudget(null)}
                     >
                       <X className="h-3.5 w-3.5 mr-2" />
-                      Clear budget code
+                      Bütçe kodunu temizle
                     </CommandItem>
-                    {budgetCategories.map((bc) => (
-                      <CommandItem
-                        key={bc.id}
-                        value={bc.slug}
-                        onSelect={() => bulkAssignBudget(bc.slug)}
-                        disabled={isApplyingBulk}
-                      >
-                        <Badge variant="outline" className="mr-2 font-mono text-[10px]">
-                          {bc.slug}
-                        </Badge>
-                        <span className="truncate">{bc.name}</span>
-                      </CommandItem>
-                    ))}
                   </CommandGroup>
+                  {itemsByCategory.map((grp) => (
+                    <CommandGroup key={grp.name} heading={grp.name}>
+                      {grp.items.map((it) => (
+                        <CommandItem
+                          key={it.id}
+                          value={`${it.cost_code} ${it.description}`}
+                          onSelect={() => bulkAssignBudget(it.cost_code!)}
+                          disabled={isApplyingBulk}
+                        >
+                          <Badge variant="outline" className="mr-2 font-mono text-[10px]">
+                            {it.cost_code}
+                          </Badge>
+                          <span className="truncate">{it.description}</span>
+                        </CommandItem>
+                      ))}
+                    </CommandGroup>
+                  ))}
                 </CommandList>
               </Command>
             </PopoverContent>
@@ -915,30 +951,34 @@ export default function ExpensesPage() {
                               </PopoverTrigger>
                               <PopoverContent className="w-64 p-0" align="start">
                                 <Command>
-                                  <CommandInput placeholder="Search code..." />
+                                  <CommandInput placeholder="Kod / kalem ara..." />
                                   <CommandList>
-                                    <CommandEmpty>No matches.</CommandEmpty>
+                                    <CommandEmpty>Eşleşme yok.</CommandEmpty>
                                     <CommandGroup>
                                       <CommandItem
                                         value="__clear__"
                                         onSelect={() => assignBudgetCode(e.id, null)}
                                       >
                                         <X className="h-3.5 w-3.5 mr-2" />
-                                        Clear
+                                        Temizle
                                       </CommandItem>
-                                      {budgetCategories.map((bc) => (
-                                        <CommandItem
-                                          key={bc.id}
-                                          value={bc.slug}
-                                          onSelect={() => assignBudgetCode(e.id, bc.slug)}
-                                        >
-                                          <Badge variant="outline" className="mr-2 font-mono text-[10px]">
-                                            {bc.slug}
-                                          </Badge>
-                                          <span className="truncate">{bc.name}</span>
-                                        </CommandItem>
-                                      ))}
                                     </CommandGroup>
+                                    {itemsByCategory.map((grp) => (
+                                      <CommandGroup key={grp.name} heading={grp.name}>
+                                        {grp.items.map((it) => (
+                                          <CommandItem
+                                            key={it.id}
+                                            value={`${it.cost_code} ${it.description}`}
+                                            onSelect={() => assignBudgetCode(e.id, it.cost_code!)}
+                                          >
+                                            <Badge variant="outline" className="mr-2 font-mono text-[10px]">
+                                              {it.cost_code}
+                                            </Badge>
+                                            <span className="truncate">{it.description}</span>
+                                          </CommandItem>
+                                        ))}
+                                      </CommandGroup>
+                                    ))}
                                   </CommandList>
                                 </Command>
                               </PopoverContent>

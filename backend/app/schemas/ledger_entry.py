@@ -27,6 +27,7 @@ class LedgerEntryRead(BaseModel):
     amount: Decimal
     entry_type: str
     budget_code: str | None
+    invoice_number: str | None = None
     subcontractor_id: int | None
     subcontractor_name: str | None
     contract_id: int | None

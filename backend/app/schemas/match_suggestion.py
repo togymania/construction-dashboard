@@ -51,6 +51,31 @@ class AIBudgetSuggestRequest(BaseModel):
     use_web: bool = True  # research the company online via Claude web_search
 
 
+class CyntekaRow(BaseModel):
+    """Bir ledger satırı için Cynteka'dan toplanan eşleştirme sinyalleri."""
+
+    entry_id: int
+    work_type: str = ""        # Вид работ / iş tipi
+    content: str = ""          # offerItems / nomenklatura
+    company_name: str = ""
+    inn: str = ""
+    invoice_number: str = ""
+
+
+class CyntekaSuggestRequest(BaseModel):
+    """Köprünün Cynteka'dan topladığı satırlar + auto-apply tercihi."""
+
+    rows: list[CyntekaRow]
+    auto_apply: bool = True
+
+
+class CyntekaSuggestResponse(BaseModel):
+    auto_applied: int
+    review_created: int
+    rejected: int
+    suggestions: list[MatchSuggestionRead]
+
+
 class ActionResult(BaseModel):
     processed: int
     applied: int  # how many actually changed a ledger row (approve only)

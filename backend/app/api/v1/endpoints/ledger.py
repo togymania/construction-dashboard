@@ -12,7 +12,7 @@ from datetime import date
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
-from sqlalchemy import func, select
+from sqlalchemy import bindparam, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
@@ -73,6 +73,7 @@ def _entry_to_read(e: LedgerEntry) -> LedgerEntryRead:
         amount=e.amount,
         entry_type=e.entry_type.value,
         budget_code=e.budget_code,
+        invoice_number=e.invoice_number,
         subcontractor_id=e.subcontractor_id,
         subcontractor_name=e.subcontractor.name if e.subcontractor else None,
         contract_id=e.contract_id,
@@ -320,6 +321,26 @@ async def import_preview(
     rows_to_import = [r for r in deduped_rows if r.dedup_hash not in existing_hashes]
     db_dups = len(deduped_rows) - len(rows_to_import)
 
+    # Backfill invoice_number on rows that were imported before this column
+    # existed, so the Cynteka bridge can match historic payments. Metadata
+    # only, idempotent (fills NULLs by dedup_hash). One executemany.
+    backfill = [
+        {"h": r.dedup_hash, "inv": r.invoice_number}
+        for r in deduped_rows
+        if r.dedup_hash in existing_hashes and r.invoice_number
+    ]
+    if backfill:
+        await db.execute(
+            update(LedgerEntry)
+            .where(
+                LedgerEntry.dedup_hash == bindparam("h"),
+                LedgerEntry.invoice_number.is_(None),
+            )
+            .values(invoice_number=bindparam("inv")),
+            backfill,
+        )
+        await db.commit()
+
     # Aggregates
     income_count = sum(1 for r in rows_to_import if r.entry_type == LedgerEntryType.INCOME)
     expense_count = sum(1 for r in rows_to_import if r.entry_type == LedgerEntryType.EXPENSE)
@@ -429,6 +450,7 @@ async def import_commit(
             entry_type=row.entry_type,
             subcontractor_id=sub_id,
             dedup_hash=row.dedup_hash,
+            invoice_number=row.invoice_number,
             source_filename=cached.filename,
             source_row=row.source_row,
         )

@@ -28,7 +28,8 @@ print(f"[CORS] allow_origins = {_cors_origins}")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins,
-    allow_origin_regex=r"https://(monotek|monart)-stroy-pm.*\.vercel\.app",
+    # Vercel (prod + preview) ve Cynteka köprü bookmarklet'inin origin'i.
+    allow_origin_regex=r"https://((monotek|monart)-stroy-pm.*\.vercel\.app|partner\.cynteka\.ru)",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

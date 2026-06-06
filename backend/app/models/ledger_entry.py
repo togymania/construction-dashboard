@@ -69,6 +69,13 @@ class LedgerEntry(Base):
     # ---- Budget code (manual fill — Excel's column doesn't match user's coding) ----
     budget_code: Mapped[str | None] = mapped_column(String(50), nullable=True, index=True)
 
+    # ---- Invoice number (Excel column X / Cynteka producerOfferNumber) ----
+    # Stored so payments can be joined exactly to Cynteka invoices for
+    # automatic budget-code assignment (invoice no + company).
+    invoice_number: Mapped[str | None] = mapped_column(
+        String(100), nullable=True, index=True
+    )
+
     # ---- Subcontractor link (set after match-approval; contract assignment is separate) ----
     subcontractor_id: Mapped[int | None] = mapped_column(
         ForeignKey("subcontractors.id", ondelete="SET NULL"),

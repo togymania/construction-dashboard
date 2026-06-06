@@ -43,6 +43,7 @@ COL_AMOUNT = 9        # J
 # two partial payments against the same invoice will share invoice/date/amount
 # but have distinct payment_ids, so this is the most reliable dedup key.
 COL_PAYMENT_ID = 36   # AK ("ID платежа")
+COL_INVOICE = 23      # X ("Номер счёта") — Cynteka producerOfferNumber ile eşleşir
 
 
 @dataclass
@@ -58,6 +59,7 @@ class ParsedLedgerRow:
     amount: Decimal
     entry_type: LedgerEntryType
     dedup_hash: str
+    invoice_number: str | None = None
 
 
 @dataclass
@@ -269,6 +271,9 @@ def parse_gelir_gider(file_bytes: bytes) -> ParseResult:
         company_name = _clean_str(row[COL_COMPANY] if len(row) > COL_COMPANY else None, max_len=500)
         kod = _clean_str(row[COL_KOD] if len(row) > COL_KOD else None, max_len=50)
         account = _clean_str(row[COL_ACCOUNT] if len(row) > COL_ACCOUNT else None, max_len=100)
+        invoice_number = _clean_str(
+            row[COL_INVOICE] if len(row) > COL_INVOICE else None, max_len=100
+        )
 
         # Hidden — used for dedup only
         payment_id = _clean_str(row[COL_PAYMENT_ID] if len(row) > COL_PAYMENT_ID else None)
@@ -293,6 +298,7 @@ def parse_gelir_gider(file_bytes: bytes) -> ParseResult:
                 amount=amount,
                 entry_type=entry_type,
                 dedup_hash=dedup,
+                invoice_number=invoice_number,
             )
         )
 

@@ -29,10 +29,13 @@ from app.schemas.match_suggestion import (
     ActionResult,
     AIBudgetSuggestRequest,
     BulkActionRequest,
+    CyntekaSuggestRequest,
+    CyntekaSuggestResponse,
     GenerateResponse,
     MatchSuggestionRead,
 )
 from app.services.ai_budget_suggester import generate_ai_budget_suggestions
+from app.services.cynteka_budget import CyntekaRowIn, apply_cynteka_matches
 from app.services.matching import Decision
 from app.services.reconciliation import build_reconciliation_plan
 
@@ -130,6 +133,44 @@ async def ai_suggest_budget_codes(
         db, project_id, ids, lang=lang, use_web=payload.use_web
     )
     return [MatchSuggestionRead.model_validate(m) for m in created]
+
+
+@router.post(
+    "/projects/{project_id}/ledger/cynteka-suggest-budget-codes",
+    response_model=CyntekaSuggestResponse,
+    summary="Cynteka iş-tipinden bütçe kodu ata (tek-kalem auto, çok-kalem review)",
+)
+async def cynteka_suggest_budget_codes(
+    project_id: int,
+    payload: CyntekaSuggestRequest,
+    db: DBSession,
+    user: User = Depends(require_roles(*_EDITORS)),
+) -> CyntekaSuggestResponse:
+    """Köprünün Cynteka'dan topladığı (iş tipi + içerik + firma) satırları
+    bütçe kalemlerine eşler. Tek kalemli kategori netse otomatik yazar; çok
+    kalemli kategori belirsizse review kuyruğuna öneri düşer."""
+    if not payload.rows:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "rows required")
+    rows = [
+        CyntekaRowIn(
+            entry_id=r.entry_id,
+            work_type=r.work_type,
+            content=r.content,
+            company_name=r.company_name,
+            inn=r.inn,
+            invoice_number=r.invoice_number,
+        )
+        for r in payload.rows
+    ]
+    res = await apply_cynteka_matches(
+        db, project_id, rows, user.id, auto_apply=payload.auto_apply
+    )
+    return CyntekaSuggestResponse(
+        auto_applied=res.auto_applied,
+        review_created=res.review_created,
+        rejected=res.rejected,
+        suggestions=[MatchSuggestionRead.model_validate(m) for m in res.created_suggestions],
+    )
 
 
 @router.get(
