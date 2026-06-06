@@ -330,17 +330,22 @@ async def import_preview(
         if r.dedup_hash in existing_hashes and r.invoice_number
     ]
     if backfill:
-        await db.execute(
-            update(LedgerEntry)
-            .where(
-                LedgerEntry.dedup_hash == bindparam("h"),
-                LedgerEntry.invoice_number.is_(None),
+        # Best-effort: backfill must NEVER block an import. Any failure here
+        # is rolled back and ignored; the upload still succeeds.
+        try:
+            await db.execute(
+                update(LedgerEntry)
+                .where(
+                    LedgerEntry.dedup_hash == bindparam("h"),
+                    LedgerEntry.invoice_number.is_(None),
+                )
+                .values(invoice_number=bindparam("inv"))
+                .execution_options(synchronize_session=None),
+                backfill,
             )
-            .values(invoice_number=bindparam("inv"))
-            .execution_options(synchronize_session=None),
-            backfill,
-        )
-        await db.commit()
+            await db.commit()
+        except Exception:
+            await db.rollback()
 
     # Aggregates
     income_count = sum(1 for r in rows_to_import if r.entry_type == LedgerEntryType.INCOME)
