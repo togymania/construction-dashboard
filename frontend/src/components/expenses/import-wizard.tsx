@@ -188,7 +188,7 @@ export function LedgerImportWizard({ onClose, onComplete, projectId }: Props) {
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="w-[96vw] max-w-6xl max-h-[92vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <FileSpreadsheet className="h-5 w-5 text-primary" />
@@ -362,12 +362,12 @@ export function LedgerImportWizard({ onClose, onComplete, projectId }: Props) {
 
             {/* Match proposals */}
             <div className="rounded-md border">
-              <div className="flex items-center justify-between border-b bg-muted/30 px-4 py-2">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b bg-muted/30 px-4 py-2">
                 <p className="text-sm font-medium">
                   {t("expenses.import.matchTitle")} (
                   {matchedProposals.length})
                 </p>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   <Button size="sm" variant="ghost" onClick={bulkAcceptHighConfidence}>
                     {t("expenses.import.acceptHigh")}
                   </Button>
